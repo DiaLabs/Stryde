@@ -1,7 +1,7 @@
 // Copies ONNX Runtime Web assets into /public/ort and bundles the analysis worker
 // into /public/workers so it can be loaded as a classic worker (importScripts) by any bundler.
 import { build, context } from "esbuild";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,10 +11,15 @@ const ortOut = join(root, "public", "ort");
 mkdirSync(ortOut, { recursive: true });
 for (const f of [
   "ort.webgpu.min.js",
+  "ort.wasm.min.js",
+  "ort.min.js",
   "ort-wasm-simd-threaded.asyncify.mjs",
   "ort-wasm-simd-threaded.asyncify.wasm",
 ]) {
-  copyFileSync(join(ortDist, f), join(ortOut, f));
+  const srcPath = join(ortDist, f);
+  if (existsSync(srcPath)) {
+    copyFileSync(srcPath, join(ortOut, f));
+  }
 }
 
 const options = {
