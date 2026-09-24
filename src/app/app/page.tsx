@@ -26,10 +26,10 @@ export default function HomePage() {
           </LinkButton>
         }
       />
-      <div className="grid gap-5 px-4 sm:px-8 xl:grid-cols-[1fr_340px]">
-        <div className="space-y-5">
+      <div className="mx-auto grid max-w-[1520px] gap-6 px-5 sm:px-10 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="space-y-6">
           <Card>
-            <CardHeader title="This session's matches" subtitle="Analyses stay in this tab's memory only and are cleared when it closes." />
+            <CardHeader title="This session's matches" subtitle="Results stay in this browser tab until you close it." />
             {count ? (
               <MatchList limit={6} />
             ) : (
@@ -50,23 +50,25 @@ export default function HomePage() {
 
           <Card>
             <CardHeader title="How it works" />
-            <ol className="grid gap-4 px-5 pb-5 sm:grid-cols-3">
+            <ol className="grid gap-6 px-6 pb-6 sm:grid-cols-3">
               {[
-                { icon: Video, t: "1. Choose a clip", d: "Name the teams, pick Faster or More Detailed and choose a local video. Analysis starts automatically." },
-                { icon: Activity, t: "2. Browser analysis", d: "A detection model runs on your GPU or CPU to find players and the ball, track them and group them by jersey color." },
-                { icon: Map, t: "3. Explore", d: "Watch annotated playback with a broadcast HUD, compare teams, and explore synchronized heatmaps and events." },
+                { icon: Video, t: "Choose a clip", d: "Pick a short local video, name the teams, and start analysis." },
+                { icon: Activity, t: "Analyze in browser", d: "Players and the ball are detected, tracked, and grouped by jersey color." },
+                { icon: Map, t: "Explore results", d: "Review annotated playback, team stats, heatmaps, and events." },
               ].map((s) => (
-                <li key={s.t} className="rounded-lg border border-line bg-page/60 p-4">
-                  <s.icon className="size-5 text-[#11704a]" aria-hidden />
-                  <p className="mt-2 font-semibold">{s.t}</p>
-                  <p className="mt-1 text-sm text-ink-2">{s.d}</p>
+                <li key={s.t}>
+                  <div className="mb-3 grid size-11 place-items-center rounded-xl bg-brand-soft text-[#11704a]">
+                    <s.icon className="size-5" aria-hidden />
+                  </div>
+                  <p className="font-semibold text-ink">{s.t}</p>
+                  <p className="mt-1.5 text-[15px] leading-relaxed text-ink-2">{s.d}</p>
                 </li>
               ))}
             </ol>
           </Card>
         </div>
 
-        <div className="space-y-5">
+        <div className="space-y-6">
           {latest?.result && (
             <Card>
               <CardHeader
@@ -74,7 +76,7 @@ export default function HomePage() {
                 subtitle={`${latest.config.teamAName} vs ${latest.config.teamBName}`}
                 action={<QualityBadge quality={latest.result.analytics[0].possessionPercent.quality} label="Estimated" />}
               />
-              <div className="px-5 pb-5">
+              <div className="px-6 pb-6">
                 <PossessionDonut result={latest.result} />
                 <LinkButton href={`/app/match/${latest.id}`} variant="secondary" className="mt-4 w-full">
                   Open match analysis
@@ -84,7 +86,7 @@ export default function HomePage() {
           )}
           <Card>
             <CardHeader title="Your device" subtitle="Analysis capability in this browser" />
-            <div className="px-5 pb-5">
+            <div className="px-6 pb-6">
               <CapabilityCard />
             </div>
           </Card>

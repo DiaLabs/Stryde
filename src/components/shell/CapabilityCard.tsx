@@ -31,7 +31,7 @@ export function useCapabilities() {
 export function CapabilityCard() {
   const caps = useCapabilities();
   return (
-    <div className="space-y-3 text-sm">
+    <div className="space-y-4 text-[15px]">
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 text-ink">
           <Gauge className="size-4 text-ink-2" aria-hidden /> GPU acceleration (WebGPU)

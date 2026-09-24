@@ -76,10 +76,10 @@ export function Card({ className, children, as: As = "section" }: { className?: 
 
 export function CardHeader({ title, subtitle, action }: { title: ReactNode; subtitle?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3">
+    <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4">
       <div className="min-w-0">
-        <h2 className="text-base font-semibold text-ink">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-sm text-ink-2">{subtitle}</p>}
+        <h2 className="text-lg font-semibold text-ink">{title}</h2>
+        {subtitle && <p className="mt-1 text-[15px] leading-relaxed text-ink-2">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -222,11 +222,11 @@ export function Switch({ checked, onChange, label, disabled, hint }: { checked: 
 
 export function EmptyState({ icon, title, children, action }: { icon?: ReactNode; title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-      {icon && <div className="mb-3 grid size-12 place-items-center rounded-full bg-brand-soft text-[#11704a]">{icon}</div>}
-      <h3 className="text-base font-semibold text-ink">{title}</h3>
-      {children && <div className="mt-1 max-w-md text-sm text-ink-2">{children}</div>}
-      {action && <div className="mt-5">{action}</div>}
+    <div className="flex flex-col items-center justify-center px-6 py-10 text-center sm:py-12">
+      {icon && <div className="mb-4 grid size-14 place-items-center rounded-2xl bg-brand-soft text-[#11704a]">{icon}</div>}
+      <h3 className="text-lg font-semibold text-ink">{title}</h3>
+      {children && <div className="mt-2 max-w-lg text-[15px] leading-relaxed text-ink-2">{children}</div>}
+      {action && <div className="mt-6">{action}</div>}
     </div>
   );
 }

@@ -195,7 +195,7 @@ export function modelCacheSummary(): { state: ModelLoadState; label: string; pro
     return { state: "loading", label: "Loading analysis engine — please wait…", progress: avg };
   }
   if (allModelsReady()) {
-    return { state: "ready", label: "Ready to analyze", progress: 1 };
+    return { state: "ready", label: "Ready", progress: 1 };
   }
   return { state: "idle", label: "Preparing analysis engine…", progress: 0 };
 }

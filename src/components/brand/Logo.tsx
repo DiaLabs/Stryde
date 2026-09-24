@@ -16,7 +16,7 @@ export function Logo({ className, light = true }: { className?: string; light?: 
   return (
     <span className={clsx("inline-flex items-center gap-2", className)}>
       <LogoMark />
-      <span className={clsx("text-lg font-extrabold tracking-[0.14em]", light ? "text-white" : "text-ink")}>STRYDE</span>
+      <span className={clsx("text-xl font-extrabold tracking-[0.12em]", light ? "text-white" : "text-ink")}>STRYDE</span>
     </span>
   );
 }
