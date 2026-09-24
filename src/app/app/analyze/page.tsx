@@ -155,7 +155,7 @@ export default function AnalyzePage() {
                   onClick={async () => {
                     try {
                       setInspecting("sample clip");
-                      const res = await fetch("/samples/sample-match.mp4");
+                      const res = await fetch("/samples/sample-match.mp4?v=2", { cache: "no-store" });
                       if (!res.ok) throw new Error(`HTTP ${res.status}`);
                       const type = res.headers.get("content-type") ?? "";
                       if (type.includes("text/html")) {

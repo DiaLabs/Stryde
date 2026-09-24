@@ -13,11 +13,28 @@ const nextConfig: NextConfig = {
       },
       {
         source: "/models/:file*",
-        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" },
+          { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+        ],
       },
       {
         source: "/ort/:file*",
-        headers: [{ key: "Cache-Control", value: "public, max-age=604800" }],
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=604800" },
+          { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+        ],
+      },
+      {
+        source: "/workers/:file*",
+        headers: [{ key: "Cross-Origin-Resource-Policy", value: "same-origin" }],
+      },
+      {
+        source: "/samples/:file*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400" },
+          { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+        ],
       },
     ];
   },

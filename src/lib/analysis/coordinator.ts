@@ -27,10 +27,12 @@ interface ModeProfile {
   sampleFps: number;
 }
 
+const ASSET_VERSION = "2";
+
 export const MODE_PROFILES: Record<"faster" | "detailed" | "detailed_cpu", ModeProfile> = {
-  faster: { model: "YOLO11n", modelUrl: "/models/yolo11n-960.onnx", inputSize: 960, sampleFps: 5 },
-  detailed: { model: "YOLO11s", modelUrl: "/models/yolo11s-960.onnx", inputSize: 960, sampleFps: 10 },
-  detailed_cpu: { model: "YOLO11n", modelUrl: "/models/yolo11n-960.onnx", inputSize: 960, sampleFps: 8 },
+  faster: { model: "YOLO11n", modelUrl: `/models/yolo11n-960.onnx?v=${ASSET_VERSION}`, inputSize: 960, sampleFps: 5 },
+  detailed: { model: "YOLO11s", modelUrl: `/models/yolo11s-960.onnx?v=${ASSET_VERSION}`, inputSize: 960, sampleFps: 10 },
+  detailed_cpu: { model: "YOLO11n", modelUrl: `/models/yolo11n-960.onnx?v=${ASSET_VERSION}`, inputSize: 960, sampleFps: 8 },
 };
 
 export async function detectWebGpu(): Promise<boolean> {

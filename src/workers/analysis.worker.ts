@@ -28,6 +28,19 @@ let frameCtx: OffscreenCanvasRenderingContext2D | null = null;
 
 const post = (msg: WorkerResponse) => self.postMessage(msg);
 
+function validateModelBuffer(buf: ArrayBuffer, modelUrl: string): void {
+  if (buf.byteLength < 100_000) {
+    throw new Error(`Model file too small (${buf.byteLength} bytes) at ${modelUrl}`);
+  }
+  const head = new TextDecoder().decode(buf.slice(0, 64));
+  if (head.startsWith("version https://git-lfs.github.com/spec/v1")) {
+    throw new Error("Model file is a Git LFS pointer, not ONNX weights. Hard-refresh or clear site data and retry.");
+  }
+  if (head.startsWith("<!DOCTYPE") || head.startsWith("<html")) {
+    throw new Error("Model download returned HTML instead of ONNX weights.");
+  }
+}
+
 async function hasWebGpu(): Promise<boolean> {
   const gpu = (self.navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
   if (!gpu) return false;
@@ -58,9 +71,10 @@ async function init(s: DetectorSettings, ortBase: string) {
 
   let modelBuffer: ArrayBuffer;
   try {
-    const res = await fetch(s.modelUrl);
+    const res = await fetch(s.modelUrl, { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     modelBuffer = await res.arrayBuffer();
+    validateModelBuffer(modelBuffer, s.modelUrl);
   } catch (e) {
     throw Object.assign(new Error(`Model download failed (${String(e)}).`), { code: "model_load" });
   }
