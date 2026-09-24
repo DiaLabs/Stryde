@@ -92,7 +92,7 @@ export const useStryde = create<StoreState>((set, get) => {
         session: {
           ...m.session,
           status: "loading",
-          stage: "Loading detection model…",
+          stage: "Loading analysis engine…",
           stageIndex: 0,
           progress: 0.01,
           startedAt: Date.now(),
@@ -154,9 +154,9 @@ export const useStryde = create<StoreState>((set, get) => {
           patch(id, {
             error: {
               code: "model_load",
-              message: `The detection model could not be loaded: ${String((e as Error).message ?? e)}`,
+              message: "The analysis engine could not be loaded.",
               recoverable: true,
-              suggestedAction: "Check your connection, wait for the model bar at the top to finish, then retry.",
+              suggestedAction: "Check your connection, wait for the status bar at the top to finish loading, then retry.",
             },
             session: { ...get().matches[id]!.session, status: "failed" },
           });

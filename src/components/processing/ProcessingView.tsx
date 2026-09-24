@@ -87,8 +87,8 @@ export function ProcessingView({ entry }: { entry: MatchEntry }) {
               {s.processedFrames ?? 0} of {s.totalFrames} sampled frames analyzed
               {s.provider ? ` · ${s.provider === "webgpu" ? "GPU (WebGPU)" : "CPU (WebAssembly)"}` : ""}
             </p>
-          ) : s.stage?.startsWith("Loading detection model") ? (
-            <p className="mt-2 text-xs text-ink-2">Waiting for the detection model to finish loading…</p>
+          ) : s.stage?.startsWith("Loading analysis engine") ? (
+            <p className="mt-2 text-xs text-ink-2">Waiting for the analysis engine to finish loading…</p>
           ) : (
             <p className="mt-2 text-xs text-ink-2">Preparing your video for analysis…</p>
           )}

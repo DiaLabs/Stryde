@@ -21,7 +21,7 @@ export function ModelStatusBar() {
       <div className="sticky top-14 z-30 border-b border-line bg-page px-4 py-2 text-sm lg:top-0" role="status" aria-live="polite">
         <div className="mx-auto flex max-w-6xl items-center gap-3">
           <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
-          <p className="font-medium">Preparing detection models…</p>
+          <p className="font-medium">Preparing analysis engine…</p>
         </div>
       </div>
     );
@@ -46,19 +46,13 @@ export function ModelStatusBar() {
         <div className="min-w-0 flex-1">
           <p className="font-medium">{summary.label}</p>
           {summary.state === "loading" && (
-            <p className="text-xs text-ink-2">First visit downloads once, then cached in this browser for 30 days.</p>
+            <p className="text-xs text-ink-2">One-time setup for this browser — saved locally for 30 days.</p>
           )}
           {summary.state === "ready" && (
-            <p className="text-xs text-ink-2">
-              {ALL_MODEL_IDS.map((id) => snapshot[id].name).join(" and ")} cached locally · upload a clip anytime
-            </p>
+            <p className="text-xs text-ink-2">Everything is loaded — upload a match clip whenever you’re ready.</p>
           )}
           {summary.state === "error" && (
-            <p className="text-xs">
-              {ALL_MODEL_IDS.filter((id) => snapshot[id].error)
-                .map((id) => `${snapshot[id].name}: ${snapshot[id].error}`)
-                .join(" · ")}
-            </p>
+            <p className="text-xs">Check your connection and try again, or reload the page.</p>
           )}
         </div>
 

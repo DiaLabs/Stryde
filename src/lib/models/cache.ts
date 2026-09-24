@@ -187,16 +187,15 @@ export function allModelsReady(): boolean {
 
 export function modelCacheSummary(): { state: ModelLoadState; label: string; progress: number } {
   if (ALL_MODEL_IDS.some((id) => snapshot[id].state === "error")) {
-    return { state: "error", label: "Model download failed", progress: 0 };
+    return { state: "error", label: "Couldn’t load the analysis engine", progress: 0 };
   }
   const loading = ALL_MODEL_IDS.filter((id) => snapshot[id].state === "loading");
   if (loading.length) {
     const avg = loading.reduce((s, id) => s + snapshot[id].progress, 0) / loading.length;
-    const names = loading.map((id) => snapshot[id].name).join(" · ");
-    return { state: "loading", label: `Downloading ${names}`, progress: avg };
+    return { state: "loading", label: "Loading analysis engine — please wait…", progress: avg };
   }
   if (allModelsReady()) {
-    return { state: "ready", label: "Detection models ready", progress: 1 };
+    return { state: "ready", label: "Ready to analyze", progress: 1 };
   }
-  return { state: "idle", label: "Preparing detection models", progress: 0 };
+  return { state: "idle", label: "Preparing analysis engine…", progress: 0 };
 }

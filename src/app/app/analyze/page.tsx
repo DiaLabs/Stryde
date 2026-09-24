@@ -206,7 +206,7 @@ export default function AnalyzePage() {
                 <Zap className="mt-0.5 size-4 shrink-0 text-[#11704a]" aria-hidden />
                 <div>
                   <p className="text-sm font-semibold">Starts when ready</p>
-                  <p className="text-xs text-ink-2">Models preload in the background; analysis begins after the model and video are both ready.</p>
+                  <p className="text-xs text-ink-2">The analysis engine loads in the background; your clip starts once everything is ready.</p>
                 </div>
               </div>
               <div className="flex gap-3 rounded-lg border border-line p-3">
