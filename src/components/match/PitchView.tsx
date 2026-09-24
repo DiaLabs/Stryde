@@ -15,25 +15,53 @@ const MARGIN = 3; // meters around the pitch
 
 function blurGrid(grid: number[][]): number[][] {
   const k = [
-    [1, 2, 1],
-    [2, 4, 2],
-    [1, 2, 1],
+    [1, 4, 6, 4, 1],
+    [4, 16, 24, 16, 4],
+    [6, 24, 36, 24, 6],
+    [4, 16, 24, 16, 4],
+    [1, 4, 6, 4, 1],
   ];
+  const rad = 2;
   return grid.map((row, y) =>
     row.map((_, x) => {
       let s = 0;
       let w = 0;
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -rad; dy <= rad; dy++)
+        for (let dx = -rad; dx <= rad; dx++) {
           const yy = y + dy;
           const xx = x + dx;
           if (yy < 0 || yy >= GRID_Y || xx < 0 || xx >= GRID_X) continue;
-          s += grid[yy][xx] * k[dy + 1][dx + 1];
-          w += k[dy + 1][dx + 1];
+          s += grid[yy][xx] * k[dy + rad][dx + rad];
+          w += k[dy + rad][dx + rad];
         }
       return s / w;
     })
   );
+}
+
+function percentile(values: number[], p: number): number {
+  const sorted = values.filter((v) => v > 0).sort((a, b) => a - b);
+  if (!sorted.length) return 1;
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? sorted[sorted.length - 1];
+}
+
+function heatColor(v: number, r: number, g: number, b: number, singleTeam: boolean) {
+  const t = Math.max(0, Math.min(1, v));
+  if (singleTeam) {
+    const hot = Math.max(0, t - 0.35) / 0.65;
+    return {
+      r: Math.round(r + (255 - r) * hot * 0.92),
+      g: Math.round(g + (248 - g) * hot * 0.88),
+      b: Math.round(b + (120 - b) * hot * 0.75),
+      a: Math.round((0.22 + t * 0.78) * 255),
+    };
+  }
+  return {
+    r,
+    g,
+    b,
+    a: Math.round((0.18 + t * 0.72) * 255),
+  };
 }
 
 export function scopeRange(scope: PitchScope, t: number, duration: number): [number, number] {
@@ -116,35 +144,36 @@ export function PitchView({
 
       // heatmap layers
       if (grids) {
+        ctx.save();
+        ctx.globalCompositeOperation = grids.length > 1 ? "screen" : "source-over";
         for (const g of grids) {
-          const max = Math.max(1e-9, ...g.grid.flat());
           if (g.total <= 0) continue;
           const bl = blurGrid(g.grid);
-          const bmax = Math.max(1e-9, ...bl.flat());
+          const norm = Math.max(1e-9, percentile(bl.flat(), 0.9));
           const off = document.createElement("canvas");
           off.width = GRID_X;
           off.height = GRID_Y;
           const octx = off.getContext("2d")!;
           const img = octx.createImageData(GRID_X, GRID_Y);
           const [r, gg, b] = hexToRgb(g.team === "team_a" ? teamAColor : teamBColor);
+          const single = grids.length === 1;
           for (let y = 0; y < GRID_Y; y++)
             for (let x = 0; x < GRID_X; x++) {
-              const v = Math.pow(bl[y][x] / bmax, 0.7);
+              const raw = bl[y][x] / norm;
+              const v = Math.pow(raw, 0.48);
               const i = (y * GRID_X + x) * 4;
-              // single team: warm core for readability; both teams: pure team colors
-              const hot = grids.length === 1 ? Math.max(0, v - 0.65) / 0.35 : 0;
-              img.data[i] = Math.round(r + (255 - r) * hot * 0.8);
-              img.data[i + 1] = Math.round(gg + (230 - gg) * hot * 0.8);
-              img.data[i + 2] = Math.round(b + (80 - b) * hot * 0.8);
-              img.data[i + 3] = Math.round(Math.min(1, v * (grids.length === 1 ? 1.05 : 0.85)) * 235);
+              const c = heatColor(v, r, gg, b, single);
+              img.data[i] = c.r;
+              img.data[i + 1] = c.g;
+              img.data[i + 2] = c.b;
+              img.data[i + 3] = raw > 0.02 ? Math.max(c.a, single ? 95 : 75) : 0;
             }
-          void max;
           octx.putImageData(img, 0, 0);
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = "high";
-          ctx.globalCompositeOperation = grids.length > 1 ? "source-over" : "source-over";
           ctx.drawImage(off, X(0), Y(0), PITCH_LENGTH * s, PITCH_WIDTH * s);
         }
+        ctx.restore();
       }
 
       // zones
@@ -158,7 +187,7 @@ export function PitchView({
             if (zones.length === 1) {
               const v = zones[0].zones[zy][zx];
               const [r, g, b] = hexToRgb(zones[0].team === "team_a" ? teamAColor : teamBColor);
-              ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(0.85, v * 2.2)})`;
+              ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(0.92, 0.25 + v * 2.4)})`;
               ctx.fillRect(x0, y0, zw * s, zh * s);
             }
             ctx.strokeStyle = "rgba(255,255,255,0.35)";
@@ -249,7 +278,7 @@ export function PitchView({
         for (const tm of teams) {
           const color = tm === "team_a" ? teamAColor : teamBColor;
           for (const p of live[tm]) {
-            const r = Math.max(4, s * 1.1);
+            const r = Math.max(5, s * 1.35);
             ctx.beginPath();
             if (tm === "team_a") ctx.arc(X(p.x), Y(p.y), r, 0, Math.PI * 2);
             else ctx.rect(X(p.x) - r * 0.9, Y(p.y) - r * 0.9, r * 1.8, r * 1.8);

@@ -11,8 +11,24 @@ import type {
 import { PITCH_LENGTH, PITCH_WIDTH } from "./pitch";
 import { sampleDurations } from "./possession";
 
-export const GRID_X = 21;
-export const GRID_Y = 14;
+export const GRID_X = 36;
+export const GRID_Y = 24;
+
+/** Spread each observation into nearby cells so heatmaps read clearly on camera-mapped footage. */
+const SPLAT_SIGMA = 1.65;
+
+function splat(grid: number[][], cx: number, cy: number, weight: number) {
+  const r = Math.ceil(SPLAT_SIGMA * 2.5);
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const yy = cy + dy;
+      const xx = cx + dx;
+      if (yy < 0 || yy >= GRID_Y || xx < 0 || xx >= GRID_X) continue;
+      const g = Math.exp(-(dx * dx + dy * dy) / (2 * SPLAT_SIGMA * SPLAT_SIGMA));
+      grid[yy][xx] += weight * g;
+    }
+  }
+}
 
 const unavailable = (unit: string, explanation: string): MetricValue => ({
   value: null,
@@ -85,10 +101,11 @@ export function computeGrid(
     if (f.t < range[0] || f.t > range[1]) continue;
     if (f[team].length) count++;
     for (const p of f[team]) {
-      const gx = Math.min(GRID_X - 1, Math.max(0, Math.floor((p.x / PITCH_LENGTH) * GRID_X)));
-      const gy = Math.min(GRID_Y - 1, Math.max(0, Math.floor((p.y / PITCH_WIDTH) * GRID_Y)));
-      const w = type === "occupancy" ? f.dt : p.move;
-      grid[gy][gx] += w;
+      const cx = Math.min(GRID_X - 1, Math.max(0, Math.round(((p.x / PITCH_LENGTH) * GRID_X))));
+      const cy = Math.min(GRID_Y - 1, Math.max(0, Math.round(((p.y / PITCH_WIDTH) * GRID_Y))));
+      const w = type === "occupancy" ? f.dt : Math.max(p.move, type === "movement" ? 0.35 : 0);
+      if (w <= 0) continue;
+      splat(grid, cx, cy, w);
       total += w;
     }
   }
@@ -238,11 +255,11 @@ export function calculateAnalytics(params: {
         }
       : unavailable("players", "No players were assigned to this team.");
 
-    let distanceMeters = unavailable("m", "Requires pitch calibration to express movement in meters.");
-    let averageSpeedMetersPerSecond = unavailable("m/s", "Requires pitch calibration to express speed in m/s.");
-    let widthMeters = unavailable("m", "Requires pitch calibration.");
-    let depthMeters = unavailable("m", "Requires pitch calibration.");
-    let compactness = unavailable("m", "Requires pitch calibration.");
+    let distanceMeters = unavailable("m", "Distance in meters is not available from camera footage alone.");
+    let averageSpeedMetersPerSecond = unavailable("m/s", "Speed in m/s is not available from camera footage alone.");
+    let widthMeters = unavailable("m", "Not available from this camera view.");
+    let depthMeters = unavailable("m", "Not available from this camera view.");
+    let compactness = unavailable("m", "Not available from this camera view.");
 
     if (calibrated) {
       let dist = 0;
@@ -327,7 +344,7 @@ export function calculateAnalytics(params: {
             },
       goalCount:
         params.eventQuality.goals === "unavailable"
-          ? unavailable("goals", "Goal estimation requires pitch calibration.")
+          ? unavailable("goals", "Goal estimation is not available for this footage.")
           : { value: goals, unit: "goals", quality: params.eventQuality.goals, explanation: "Possible goals (estimated)." },
       averageVisiblePlayers,
       trackCount: {
@@ -342,7 +359,7 @@ export function calculateAnalytics(params: {
               value: v * 100,
               unit: "%",
               quality: spatialQuality,
-              explanation: calibrated ? "Calibrated pitch coordinates." : "Image-space approximation.",
+              explanation: "Approximate zones from the camera view.",
             }))
           : [0, 1, 2].map(() => unavailable("%", "No mapped positions.")),
       occupancyGrid: grid,

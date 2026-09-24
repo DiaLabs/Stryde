@@ -141,12 +141,14 @@ export function imageSpaceMapper(summaries: FrameSummary[], tracks: ObjectTrack[
   }
   const spanX = Math.max(0.2, maxX - minX);
   const spanY = Math.max(0.2, maxY - minY);
+  const padX = spanX * 0.12;
+  const padY = spanY * 0.12;
   return {
     method: "image_space",
     map(fi, x, y) {
       const s = summaries[fi];
-      const u = (x + s.cameraX - minX) / spanX;
-      const v = (y + s.cameraY - minY) / spanY;
+      const u = (x + s.cameraX - minX + padX) / (spanX + padX * 2);
+      const v = (y + s.cameraY - minY + padY) / (spanY + padY * 2);
       return {
         x: Math.max(0, Math.min(1, u)) * PITCH_LENGTH,
         y: Math.max(0, Math.min(1, v)) * PITCH_WIDTH,
