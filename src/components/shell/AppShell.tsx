@@ -52,7 +52,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebar = (
     <nav aria-label="Primary" className="flex h-full flex-col border-r border-white/10 bg-navy-950 px-3 py-5 text-white">
       <Link href="/" className="px-1 pb-2" aria-label="Stryde home">
-        <Logo />
+        <Logo mark="image" />
       </Link>
       <ul className="mt-8 space-y-1">
         {nav.map((n) => {
