@@ -1,68 +1,89 @@
 # Stryde
 
-Browser-first football (soccer) video analytics by DiaLabs. Choose a short match clip and Stryde detects and tracks players, groups them into teams by jersey color, estimates team possession, maps movement onto a 2D pitch and presents everything as annotated playback with a broadcast-style HUD, side-by-side team statistics, synchronized heatmaps and estimated shot/goal events.
+Stryde is a browser-based football analytics application that turns a short soccer clip into a readable team analysis experience. Users can upload match footage, process it locally in the browser, review player tracking, estimate team possession, inspect pitch-based movement, and view annotated playback with side-by-side team statistics.
 
-All computer vision runs locally in the browser (ONNX Runtime Web on WebGPU, WebAssembly fallback). The video is never uploaded and results live only in the tab's memory.
-
-Product and design sources: [`docs/prd.md`](docs/prd.md), [`docs/specs.md`](docs/specs.md), [`docs/design.md`](docs/design.md).
+The app is designed for users who want a simple way to study football clips without uploading their video to a server. All analysis runs in the browser on the user’s device.
 
 ## Quick start
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
+npm run dev
 ```
 
-`npm run dev` / `npm run build` first run `scripts/build-assets.mjs`, which copies the ONNX Runtime Web files to `public/ort/` and bundles the analysis worker to `public/workers/analysis.worker.js`.
+Then open:
 
-Open **Analyze a match**, optionally name the teams, then drop a clip or use **Try the sample clip**. Analysis starts automatically after validation.
+```text
+http://localhost:3000
+```
 
-Other scripts: `npm run typecheck`, `npm run lint`, `npm start` (after build).
+From there:
+
+1. Click "Analyze a match"
+2. Upload a local football video
+3. Enter team names and optional colors
+4. Choose Faster or More Detailed analysis
+5. Let the app process the clip automatically
+6. View annotated playback, possession, pitch, and team metrics
+
+## Objective of the application
+
+The goal of Stryde is to make football analysis more accessible by giving users a quick, privacy-friendly way to:
+
+- analyze short match clips
+- detect players and the ball
+- estimate team possession
+- compare team movement and pitch positioning
+- review annotated video with supporting statistics
+
+## Overview
+
+Stryde focuses on team-level insights rather than individual player profiling. It estimates which team is in possession, tracks player movement, groups players by team color, and presents results in a dashboard designed around the video itself.
+
+The app keeps the workflow simple:
+
+- upload a local soccer video
+- validate and inspect metadata
+- run browser-side analysis
+- view annotated results and tactical outputs
+
+## Features
+
+- local video upload and validation
+- automatic analysis start
+- browser-based player and ball detection
+- temporary object tracking across frames
+- team color estimation with user correction
+- estimated possession timeline and percentages
+- team movement and occupancy insights
+- pitch-style visualization and heatmaps
+- best-effort shot and goal event estimates
+- annotated playback with team labels and overlays
+- privacy-first, no backend upload requirement
+
+## Project documentation
+
+- [docs/prd.md](docs/prd.md) — product requirements document
+- [docs/specs.md](docs/specs.md) — technical specification
+- [docs/design.md](docs/design.md) — design and UX direction
+- [docs/project-analysis.md](docs/project-analysis.md) — project analysis
+- [docs/project-features-and-flow.md](docs/project-features-and-flow.md) — feature and flow overview
+
+## Useful commands
+
+```bash
+npm install
+npm run dev
+npm run build
+npm run start
+npm run lint
+npm run typecheck
+```
 
 ## Deployment
 
-Static-friendly Next.js app (Vercel-ready). `next.config.ts` sets `Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy` so multi-threaded WebAssembly is available; keep these headers on any host.
+Stryde is a static-friendly Next.js application and can be deployed to hosts such as Vercel. The project is configured to support browser-based WebAssembly and worker execution, which are required for the local analysis pipeline.
 
-## Architecture
+## Limitations
 
-```
-src/
-  app/                       routes: landing, /app (home), analyze, matches, match/[id], team, help
-  workers/analysis.worker.ts ONNX inference, pitch/grass filtering, jersey colors, camera motion, tracking
-  lib/
-    vision/                  YOLO decode + NMS, association tracker, Lab color, camera-motion estimator
-    analysis/
-      coordinator.ts         frame sampling via <video> seeking, worker orchestration, progress, cancel, GPU→CPU fallback
-      pipeline.ts            raw detections → AnalysisResult (re-run instantly for color/calibration changes)
-      teams.ts               jersey-color clustering and track classification (with Unknown)
-      tracks.ts, homography.ts, pitch.ts   pitch mapping: image-space fallback or user-calibrated homography
-      ball.ts, possession.ts, events.ts    ball selection, possession estimate, shot/goal candidates
-      analytics.ts           team metrics, heatmap grids, zones, team shape
-    render/                  overlay renderer (boxes, labels, possession, ball, trails, speed, shots, goals)
-    store.ts                 in-memory session store (zustand)
-  components/                shell, UI primitives, processing view, match workspace
-public/models/               YOLO11n / YOLO11s ONNX exports (COCO: person + sports ball), 960 px input
-```
-
-### Analysis modes
-
-| Mode | Model | Sampling |
-|---|---|---|
-| Faster | YOLO11n @ 960 px | 5 frames/s |
-| More detailed | YOLO11s @ 960 px (WebGPU) | 10 frames/s |
-| More detailed without WebGPU | YOLO11n @ 960 px | 8 frames/s |
-
-Models were exported with Ultralytics (`yolo export model=yolo11n.pt format=onnx imgsz=960 opset=17 simplify=True`).
-
-### Key assumptions recorded for open decisions (specs §15)
-
-- **Output rendering:** overlays are drawn on a canvas synchronized with the original video rather than re-encoding a new file.
-- **Frame access:** `<video>` seeking + `createImageBitmap`, transferred to a classic Web Worker.
-- **Calibration:** user-assisted — click ≥4 pitch markings on a frame and match them to landmarks. The homography is pan-compensated using the estimated camera motion; frames after cuts or with large drift are excluded from pitch metrics. Without calibration, positions are camera-stabilized image coordinates and physical metrics (m, m/s, width/depth, goals) are reported as unavailable.
-- **Possession percentage:** unknown/contested time is excluded from the denominator and reported separately.
-- **Team color correction after processing:** re-runs team assignment, possession and analytics instantly from stored detections; no video re-processing.
-- **Persistence:** none. Results are session-only; the app warns before a reload discards them.
-
-### Limitations
-
-Estimates only. Small or occluded balls are often missed; shots are inferred from fast straight ball travel (passes can look similar); possible goals need calibration and do not observe ball height. No individual-player statistics, identity recognition, pass detection, manual correction of analytics, or exports.
+Stryde provides best-effort estimates, not guaranteed professional match truth. Accuracy depends on video quality, camera motion, visibility, occlusion, and calibration quality. Metrics such as possession, shots, and goals are presented as estimates and may be unavailable for clips that do not support them reliably.
