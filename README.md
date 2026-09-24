@@ -13,7 +13,7 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
-`npm run dev` / `npm run build` first run `scripts/build-assets.mjs`, which copies the ONNX Runtime Web files to `public/ort/` and bundles the analysis worker to `public/workers/analysis.worker.js`.
+`npm run dev` / `npm run build` first run `scripts/download-assets.mjs` (YOLO ONNX weights + demo clip from GitHub) and `scripts/build-assets.mjs` (ONNX Runtime Web + analysis worker into `public/ort/` and `public/workers/`). Model files are not stored in git — they are fetched on first dev/build.
 
 Open **Analyze a match**, optionally name the teams, then drop a clip or use **Try the sample clip**. Analysis starts automatically after validation.
 
@@ -41,7 +41,7 @@ src/
     render/                  overlay renderer (boxes, labels, possession, ball, trails, speed, shots, goals)
     store.ts                 in-memory session store (zustand)
   components/                shell, UI primitives, processing view, match workspace
-public/models/               YOLO11n / YOLO11s ONNX exports (COCO: person + sports ball), 960 px input
+public/models/               YOLO11n / YOLO11s ONNX exports (downloaded at build; gitignored)
 ```
 
 ### Analysis modes

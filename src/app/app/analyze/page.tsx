@@ -158,6 +158,13 @@ export default function AnalyzePage() {
                       const res = await fetch("/samples/sample-match.mp4");
                       if (!res.ok) throw new Error(`HTTP ${res.status}`);
                       const blob = await res.blob();
+                      const head = await blob.slice(0, 40).text();
+                      if (head.startsWith("version https://git-lfs")) {
+                        throw new Error("sample clip was not built (missing asset download on deploy)");
+                      }
+                      if (blob.size < 100_000) {
+                        throw new Error("sample clip file is too small or corrupt");
+                      }
                       await handleFile(new File([blob], "sample-match.mp4", { type: "video/mp4" }));
                     } catch (e) {
                       setInspecting(null);
