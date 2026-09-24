@@ -97,7 +97,7 @@ export function decodeYolo(
     const bs = output[ballOff + i];
     if (bs >= thresholds.ball) balls.push({ cls: COCO_SPORTS_BALL, score: bs, box: toBox(i) });
   }
-  return { players: nms(players, iouThreshold), balls: nms(balls, 0.3, 10) };
+  return { players: nms(players, iouThreshold), balls: nms(balls, 0.35, 16) };
 }
 
 export { iou };

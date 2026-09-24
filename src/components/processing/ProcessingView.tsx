@@ -40,11 +40,12 @@ export function ProcessingView({ entry }: { entry: MatchEntry }) {
       ctx.strokeStyle = "rgba(32,199,133,0.95)";
       ctx.strokeRect(pl.box.x * o.width, pl.box.y * o.height, pl.box.width * o.width, pl.box.height * o.height);
     }
-    for (const b of rec.balls) {
+    const best = rec.balls.slice().sort((a, b) => b.confidence - a.confidence)[0];
+    if (best) {
       ctx.strokeStyle = "#FFD400";
       ctx.lineWidth = 2;
-      const cx = (b.box.x + b.box.width / 2) * o.width;
-      const cy = (b.box.y + b.box.height / 2) * o.height;
+      const cx = (best.box.x + best.box.width / 2) * o.width;
+      const cy = (best.box.y + best.box.height / 2) * o.height;
       ctx.beginPath();
       ctx.arc(cx, cy, 7, 0, Math.PI * 2);
       ctx.stroke();

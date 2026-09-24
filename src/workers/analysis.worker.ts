@@ -191,14 +191,21 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
     })
     .map((d) => ({ box: d.box, confidence: d.score, color: jerseyColor(img, d.box) }));
 
-  const balls = decoded.balls
+  const ballCandidates = decoded.balls
     .filter((d) => {
       const b = d.box;
-      if (b.width > 0.05 || b.height > 0.08) return false;
-      const g = grassFraction(img, b.x + b.width / 2, b.y + b.height / 2, Math.max(b.width * 2.5, 0.01), Math.max(b.height * 2.5, 0.015));
-      return g >= 0.15;
+      if (b.width > 0.048 || b.height > 0.065) return false;
+      const ar = b.width / Math.max(1e-4, b.height);
+      if (ar < 0.45 || ar > 2.2) return false;
+      const cx = b.x + b.width / 2;
+      const cy = b.y + b.height / 2;
+      // Airborne balls often sit above grass — relax the pitch check when high in frame or confident.
+      if (cy < 0.5 || d.score >= 0.22) return true;
+      const g = grassFraction(img, cx, cy, Math.max(b.width * 2.5, 0.01), Math.max(b.height * 2.5, 0.015));
+      return g >= 0.1;
     })
-    .map((d) => ({ box: d.box, confidence: d.score }));
+    .sort((a, b) => b.score - a.score);
+  const balls = ballCandidates.length ? [{ box: ballCandidates[0].box, confidence: ballCandidates[0].score }] : [];
 
   const ids = tracker.update(players, t, motionX, motionY, sceneCut);
   const record: WorkerFrameRecord = {
