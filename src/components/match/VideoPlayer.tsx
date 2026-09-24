@@ -16,13 +16,13 @@ const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
 export const DEFAULT_OVERLAYS: OverlayOptions = {
   showPlayerBoxes: true,
   showTeamLabels: true,
-  showPossession: true,
+  showPossessionHighlight: true,
+  showPossessionPanel: true,
   showBall: true,
-  showSpeed: true,
   showTrails: false,
   showShotEvents: true,
   showGoalEvents: true,
-  showHud: true,
+  showScorebug: true,
   showConfidence: false,
 };
 
@@ -54,7 +54,6 @@ export function VideoPlayer({
   useEffect(() => {
     overlaysRef.current = overlays;
   }, [overlays]);
-  const calibrated = result.calibration.method === "homography";
   const aspect = result.video.width / result.video.height;
   const teams = result.teams;
 
@@ -88,7 +87,6 @@ export function VideoPlayer({
     }
   }, [aspect, index, teams, setTime, videoRef]);
 
-  // render loop while playing; single draws on seek/pause/resize
   useEffect(() => {
     let raf = 0;
     const loop = () => {
@@ -169,6 +167,19 @@ export function VideoPlayer({
   const markers = useMemo(() => result.events.filter((e) => e.type === "shot" || e.type === "goal"), [result.events]);
   const pct = duration ? (time / duration) * 100 : 0;
 
+  const layerToggles: [keyof OverlayOptions, string][] = [
+    ["showScorebug", "Scorebug (teams & clock)"],
+    ["showPlayerBoxes", "Player boxes"],
+    ["showTeamLabels", "Team labels"],
+    ["showPossessionHighlight", "Possession ring on player"],
+    ["showPossessionPanel", "Possession panel"],
+    ["showBall", "Ball indicator"],
+    ["showTrails", "Movement trails"],
+    ["showShotEvents", "Shot trajectories"],
+    ["showGoalEvents", "Goal banners"],
+    ["showConfidence", "Detection confidence"],
+  ];
+
   return (
     <div
       ref={containerRef}
@@ -202,54 +213,52 @@ export function VideoPlayer({
       />
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 size-full" aria-hidden />
 
-      {overlays.showHud && (
-        <>
-          {/* scorebug */}
-          <div className="pointer-events-none absolute top-[3%] left-[2.5%] flex items-stretch overflow-hidden rounded-md text-[clamp(9px,1.25vw,14px)] font-bold shadow-lg">
-            <div className="flex items-center bg-navy-950/90 px-2 text-brand">STRYDE</div>
-            {(["team_a", "team_b"] as const).map((tm) => {
+      {overlays.showScorebug && (
+        <div className="pointer-events-none absolute top-[3%] left-[2.5%] flex items-stretch overflow-hidden rounded-md text-[clamp(9px,1.25vw,14px)] font-bold shadow-lg">
+          <div className="flex items-center bg-navy-950/90 px-2 text-brand">STRYDE</div>
+          {(["team_a", "team_b"] as const).map((tm) => {
+            const color = tm === "team_a" ? teams.teamAColor : teams.teamBColor;
+            const name = tm === "team_a" ? teams.teamAName : teams.teamBName;
+            return (
+              <div key={tm} className="flex items-center gap-1.5 px-2 py-1" style={{ background: color, color: readableTextColor(color) }}>
+                {inPoss === tm && overlays.showPossessionHighlight && (
+                  <span className="size-[0.55em] rounded-full bg-white/90 ring-1 ring-black/30" aria-hidden />
+                )}
+                <span className="max-w-[9em] truncate uppercase">{name}</span>
+              </div>
+            );
+          })}
+          <div className="flex items-center bg-navy-950/90 px-2 text-white tabular-nums">{formatClock(time)}</div>
+        </div>
+      )}
+
+      {overlays.showPossessionPanel && (
+        <div className="pointer-events-none absolute right-[2.5%] bottom-[16%] w-[clamp(150px,26%,260px)] rounded-lg border border-white/15 bg-navy-950/85 p-[0.8em] text-[clamp(9px,1.1vw,13px)] text-white shadow-xl">
+          <div className="mb-[0.5em] flex items-center justify-between">
+            <span className="font-bold tracking-wider">POSSESSION</span>
+            <span className="rounded bg-white/15 px-1 text-[0.8em] font-semibold">EST.</span>
+          </div>
+          {pctA === null ? (
+            <p className="text-white/70">Not enough evidence yet</p>
+          ) : (
+            (["team_a", "team_b"] as const).map((tm) => {
+              const p = tm === "team_a" ? pctA : 100 - pctA;
               const color = tm === "team_a" ? teams.teamAColor : teams.teamBColor;
-              const name = tm === "team_a" ? teams.teamAName : teams.teamBName;
               return (
-                <div key={tm} className="flex items-center gap-1.5 px-2 py-1" style={{ background: color, color: readableTextColor(color) }}>
-                  {inPoss === tm && overlays.showPossession && <span className="size-[0.6em] rounded-full bg-[#FFD400] ring-1 ring-black/40" aria-hidden />}
-                  <span className="max-w-[9em] truncate uppercase">{name}</span>
+                <div key={tm} className="mt-[0.35em] flex items-center gap-[0.6em]">
+                  <span className="w-[5.5em] truncate">{tm === "team_a" ? teams.teamAName : teams.teamBName}</span>
+                  <span className="h-[0.8em] flex-1 overflow-hidden rounded-sm bg-white/10">
+                    <span className="block h-full" style={{ width: `${p}%`, background: color }} />
+                  </span>
+                  <span className="w-[2.6em] text-right font-bold tabular-nums">{p.toFixed(0)}%</span>
                 </div>
               );
-            })}
-            <div className="flex items-center bg-navy-950/90 px-2 text-white tabular-nums">{formatClock(time)}</div>
-          </div>
-
-          {/* possession panel */}
-          {overlays.showPossession && (
-            <div className="pointer-events-none absolute right-[2.5%] bottom-[16%] w-[clamp(150px,26%,260px)] rounded-lg border border-white/15 bg-navy-950/85 p-[0.8em] text-[clamp(9px,1.1vw,13px)] text-white shadow-xl">
-              <div className="mb-[0.5em] flex items-center justify-between">
-                <span className="font-bold tracking-wider">POSSESSION</span>
-                <span className="rounded bg-white/15 px-1 text-[0.8em] font-semibold">EST.</span>
-              </div>
-              {pctA === null ? (
-                <p className="text-white/70">Not enough evidence yet</p>
-              ) : (
-                (["team_a", "team_b"] as const).map((tm) => {
-                  const p = tm === "team_a" ? pctA : 100 - pctA;
-                  const color = tm === "team_a" ? teams.teamAColor : teams.teamBColor;
-                  return (
-                    <div key={tm} className="mt-[0.35em] flex items-center gap-[0.6em]">
-                      <span className="w-[5.5em] truncate">{tm === "team_a" ? teams.teamAName : teams.teamBName}</span>
-                      <span className="h-[0.8em] flex-1 overflow-hidden rounded-sm bg-white/10">
-                        <span className="block h-full" style={{ width: `${p}%`, background: color }} />
-                      </span>
-                      <span className="w-[2.6em] text-right font-bold tabular-nums">{p.toFixed(0)}%</span>
-                    </div>
-                  );
-                })
-              )}
-              <p className="mt-[0.5em] text-[0.85em] text-white/70">
-                Now: {inPoss === "unknown" ? "unknown" : inPoss === "team_a" ? teams.teamAName : teams.teamBName}
-              </p>
-            </div>
+            })
           )}
-        </>
+          <p className="mt-[0.5em] text-[0.85em] text-white/70">
+            Now: {inPoss === "unknown" ? "unknown" : inPoss === "team_a" ? teams.teamAName : teams.teamBName}
+          </p>
+        </div>
       )}
 
       {gap && (
@@ -258,7 +267,6 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* controls */}
       <div
         className={clsx(
           "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-3 pt-8 pb-2 text-white transition-opacity",
@@ -341,29 +349,9 @@ export function VideoPlayer({
               </button>
               {menu && (
                 <div className="absolute right-0 bottom-full z-20 mb-2 w-64 rounded-lg border border-line bg-card p-3 text-ink shadow-2xl">
-                  <p className="mb-1 text-xs font-semibold tracking-wide text-ink-2 uppercase">Overlay layers</p>
-                  {(
-                    [
-                      ["showPlayerBoxes", "Player boxes"],
-                      ["showTeamLabels", "Team labels"],
-                      ["showPossession", "Possession highlight"],
-                      ["showBall", "Ball indicator"],
-                      ["showTrails", "Movement trails"],
-                      ["showSpeed", "Speed (calibrated only)"],
-                      ["showShotEvents", "Shot trajectories"],
-                      ["showGoalEvents", "Goal indicators"],
-                      ["showConfidence", "Detection confidence"],
-                      ["showHud", "Broadcast HUD"],
-                    ] as [keyof OverlayOptions, string][]
-                  ).map(([k, label]) => (
-                    <Switch
-                      key={k}
-                      label={label}
-                      checked={overlays[k]}
-                      disabled={k === "showSpeed" && !calibrated}
-                      hint={k === "showSpeed" && !calibrated ? "Speed requires pitch calibration" : undefined}
-                      onChange={(v) => onOverlaysChange({ ...overlays, [k]: v })}
-                    />
+                  <p className="mb-2 text-xs font-semibold text-ink-2">Video overlays</p>
+                  {layerToggles.map(([k, label]) => (
+                    <Switch key={k} label={label} checked={overlays[k]} onChange={(v) => onOverlaysChange({ ...overlays, [k]: v })} />
                   ))}
                 </div>
               )}

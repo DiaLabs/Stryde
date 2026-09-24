@@ -234,13 +234,16 @@ export interface AnalysisError {
 export interface OverlayOptions {
   showPlayerBoxes: boolean;
   showTeamLabels: boolean;
-  showPossession: boolean;
+  /** Highlight the player closest to the ball on the video canvas. */
+  showPossessionHighlight: boolean;
+  /** Scoreboard-style possession panel on the video. */
+  showPossessionPanel: boolean;
   showBall: boolean;
-  showSpeed: boolean;
   showTrails: boolean;
   showShotEvents: boolean;
   showGoalEvents: boolean;
-  showHud: boolean;
+  /** Team names and clock scorebug. */
+  showScorebug: boolean;
   showConfidence: boolean;
 }
 

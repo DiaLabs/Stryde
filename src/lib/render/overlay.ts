@@ -100,7 +100,7 @@ export function drawOverlay(
   for (const p of players) {
     const color = colorOf(p.teamId);
     const uncertain = p.teamId === "unknown" || p.teamConfidence < 0.45;
-    const inPossession = opts.showPossession && possTeam !== "unknown" && p.teamId === possTeam;
+    const inPossession = opts.showPossessionHighlight && possTeam !== "unknown" && p.teamId === possTeam;
     const bx = px(p.box.x);
     const by = py(p.box.y);
     const bw = p.box.width * w;
@@ -136,55 +136,61 @@ export function drawOverlay(
       tag(ctx, label, cx, by - 3 * scale, color, font, uncertain);
     }
 
-    if (opts.showPossession && poss.sample?.nearestTrackId === p.trackId && possTeam !== "unknown") {
-      const ty = by - (opts.showTeamLabels ? font * 1.5 + 6 * scale : 4 * scale);
+    if (opts.showPossessionHighlight && poss.sample?.nearestTrackId === p.trackId && possTeam !== "unknown") {
       ctx.beginPath();
-      ctx.moveTo(cx - 6 * scale, ty - 9 * scale);
-      ctx.lineTo(cx + 6 * scale, ty - 9 * scale);
-      ctx.lineTo(cx, ty);
-      ctx.closePath();
-      ctx.fillStyle = BALL;
-      ctx.fill();
-      ctx.strokeStyle = "#0B1620";
-      ctx.lineWidth = 1;
+      ctx.arc(cx, footY, Math.max(bw * 0.55, 10 * scale), 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5 * scale;
+      ctx.setLineDash([5 * scale, 3 * scale]);
       ctx.stroke();
-    }
-
-    if (opts.showSpeed && p.speed !== undefined) {
-      const text = `${p.speed.toFixed(1)} m/s`;
-      ctx.font = `600 ${Math.round(font * 0.95)}px Inter, system-ui, sans-serif`;
-      const tw = ctx.measureText(text).width + 8 * scale;
-      roundRect(ctx, cx - tw / 2, footY + 5 * scale, tw, font * 1.4, 3 * scale);
-      ctx.fillStyle = "rgba(7,19,29,0.78)";
-      ctx.fill();
-      ctx.fillStyle = "#fff";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(text, cx, footY + 5 * scale + font * 0.72);
+      ctx.setLineDash([]);
     }
   }
 
-  // ball (only at an actually observed sample)
+  // One ball only — interpolated between bracketing observations when needed.
   if (opts.showBall) {
-    const b = index.ball[si];
-    if (b && Math.abs(b.timestampSeconds - t) <= index.interval * 0.75) {
-      const shift = { x: cam.x - index.frames[si].cameraX, y: cam.y - index.frames[si].cameraY };
-      const bx = px(b.x - shift.x);
-      const by = py(b.y - shift.y);
-      const r = Math.max(6 * scale, b.box.width * w * 0.9);
-      ctx.beginPath();
-      ctx.arc(bx, by, r, 0, Math.PI * 2);
-      ctx.strokeStyle = BALL;
-      ctx.lineWidth = 2.5 * scale;
-      ctx.shadowColor = BALL;
-      ctx.shadowBlur = 8 * scale;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      ctx.font = `700 ${font}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = BALL;
-      ctx.textAlign = "left";
-      ctx.textBaseline = "middle";
-      ctx.fillText(opts.showConfidence ? `BALL ${Math.round(b.confidence * 100)}%` : "BALL", bx + r + 4 * scale, by);
+    const activeShot = opts.showShotEvents
+      ? index.events.find((e) => e.type === "shot" && t >= e.timestampSeconds - 0.15 && t <= (e.endTimestampSeconds ?? e.timestampSeconds) + 0.35)
+      : undefined;
+    if (!activeShot) {
+      let i0 = si;
+      while (i0 >= 0 && !index.ball[i0]) i0--;
+      let i1 = si;
+      while (i1 < index.ball.length && !index.ball[i1]) i1++;
+      const b0 = i0 >= 0 ? index.ball[i0] : undefined;
+      const b1 = i1 < index.ball.length ? index.ball[i1] : undefined;
+      const pick = b0 && b1 && i0 !== i1 ? (Math.abs(index.times[i0] - t) <= Math.abs(index.times[i1] - t) ? b0 : b1) : b0 ?? b1;
+      if (pick && Math.abs(pick.timestampSeconds - t) <= index.interval * 1.1) {
+        let bxN = pick.x;
+        let byN = pick.y;
+        let box = pick.box;
+        let conf = pick.confidence;
+        if (b0 && b1 && i0 !== i1 && index.times[i1] > index.times[i0]) {
+          const a = Math.max(0, Math.min(1, (t - index.times[i0]) / (index.times[i1] - index.times[i0])));
+          bxN = b0.x + (b1.x - b0.x) * a;
+          byN = b0.y + (b1.y - b0.y) * a;
+          conf = b0.confidence + (b1.confidence - b0.confidence) * a;
+          box = b0.box;
+        }
+        const fRef = index.frames[i0 >= 0 && index.ball[i0] ? i0 : i1];
+        const shift = { x: cam.x - fRef.cameraX, y: cam.y - fRef.cameraY };
+        const bx = px(bxN - shift.x);
+        const by = py(byN - shift.y);
+        const r = Math.max(6 * scale, box.width * w * 0.85);
+        ctx.beginPath();
+        ctx.arc(bx, by, r, 0, Math.PI * 2);
+        ctx.strokeStyle = BALL;
+        ctx.lineWidth = 2.5 * scale;
+        ctx.shadowColor = BALL;
+        ctx.shadowBlur = 8 * scale;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.font = `700 ${font}px Inter, system-ui, sans-serif`;
+        ctx.fillStyle = BALL;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(opts.showConfidence ? `BALL ${Math.round(conf * 100)}%` : "BALL", bx + r + 4 * scale, by);
+      }
     }
   }
 
