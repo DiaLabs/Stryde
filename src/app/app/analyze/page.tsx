@@ -157,10 +157,22 @@ export default function AnalyzePage() {
                       setInspecting("sample clip");
                       const res = await fetch("/samples/sample-match.mp4");
                       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                      const type = res.headers.get("content-type") ?? "";
+                      if (type.includes("text/html")) {
+                        throw new Error("sample clip missing — run npm run assets");
+                      }
                       const blob = await res.blob();
                       const head = await blob.slice(0, 40).text();
                       if (head.startsWith("version https://git-lfs")) {
                         throw new Error("sample clip was not built (missing asset download on deploy)");
+                      }
+                      if (head.startsWith("<!DOCTYPE") || head.startsWith("<html")) {
+                        throw new Error("sample clip missing — run npm run assets");
+                      }
+                      const magic = new Uint8Array(await blob.slice(4, 8).arrayBuffer());
+                      const ftyp = String.fromCharCode(...magic);
+                      if (ftyp !== "ftyp") {
+                        throw new Error("sample clip file is corrupt or not an MP4");
                       }
                       if (blob.size < 100_000) {
                         throw new Error("sample clip file is too small or corrupt");

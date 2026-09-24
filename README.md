@@ -13,7 +13,7 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
-`npm run dev` / `npm run build` first run `scripts/download-assets.mjs` (YOLO ONNX weights + demo clip from GitHub) and `scripts/build-assets.mjs` (ONNX Runtime Web + analysis worker into `public/ort/` and `public/workers/`). Model files are not stored in git — they are fetched on first dev/build.
+`npm run dev` / `npm run build` first run `scripts/download-assets.mjs` (YOLO ONNX weights + demo clip, pinned to a Git LFS commit on GitHub) and `scripts/build-assets.mjs` (ONNX Runtime Web + analysis worker). Model files are gitignored and fetched on first dev/build — if the sample clip fails, run `npm run assets`.
 
 Open **Analyze a match**, optionally name the teams, then drop a clip or use **Try the sample clip**. Analysis starts automatically after validation.
 

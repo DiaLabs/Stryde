@@ -8,8 +8,9 @@ import { pipeline } from "node:stream/promises";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = process.env.STRYDE_ASSETS_REPO ?? "DiaLabs/Stryde";
-const branch = process.env.STRYDE_ASSETS_BRANCH ?? "main";
-const base = `https://media.githubusercontent.com/media/${repo}/${branch}`;
+// Assets were removed from main; pin to the last commit that still contains them in Git LFS.
+const ref = process.env.STRYDE_ASSETS_REF ?? "0de8351";
+const base = `https://media.githubusercontent.com/media/${repo}/${ref}`;
 
 const ASSETS = [
   { dest: "public/models/yolo11n-960.onnx", path: "public/models/yolo11n-960.onnx", minBytes: 1_000_000 },
@@ -23,9 +24,17 @@ function isLfsPointer(filePath) {
   return head.startsWith("version https://git-lfs.github.com/spec/v1");
 }
 
+function looksLikeMp4(filePath) {
+  if (!existsSync(filePath) || statSync(filePath).size < 12) return false;
+  const head = readFileSync(filePath).subarray(0, 12);
+  return head.subarray(4, 8).toString("ascii") === "ftyp";
+}
+
 function isValid(filePath, minBytes) {
   if (!existsSync(filePath) || isLfsPointer(filePath)) return false;
-  return statSync(filePath).size >= minBytes;
+  if (statSync(filePath).size < minBytes) return false;
+  if (filePath.endsWith(".mp4") && !looksLikeMp4(filePath)) return false;
+  return true;
 }
 
 async function download(url, dest) {
@@ -37,6 +46,9 @@ async function download(url, dest) {
   const got = statSync(tmp).size;
   if (got < 1000 || isLfsPointer(tmp)) {
     throw new Error(`Downloaded file looks invalid (${got} bytes) from ${url}`);
+  }
+  if (dest.endsWith(".mp4") && !looksLikeMp4(tmp)) {
+    throw new Error(`Downloaded file is not a valid MP4 from ${url}`);
   }
   renameSync(tmp, join(root, dest));
   console.log(`download-assets: ${dest} (${(got / 1024 / 1024).toFixed(1)} MiB)`);
