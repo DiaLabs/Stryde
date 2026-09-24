@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-brand: #20c785;
+  --color-brand-hover: #18ad72;
+  --color-brand-soft: #e5f7ef;
+  --color-navy-950: #07131d;
+  --color-navy-900: #0d1d2a;
+  --color-navy-800: #162b3b;
+  --color-navy-700: #22394b;
+  --color-page: #f5f7f8;
+  --color-card: #ffffff;
+  --color-line: #dde3e7;
+  --color-ink: #17232d;
+  --color-ink-2: #65727d;
+  --color-ok-bg: #e5f7ef;
+  --color-warn-bg: #fff5dd;
+  --color-warn: #8a5a00;
+  --color-danger: #c83f4f;
+  --color-danger-bg: #fbe9eb;
+  --color-info-bg: #e8f1fb;
+  --color-info: #1f5f9e;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+input[type="range"].seek {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 18px;
+}
+input[type="range"].seek::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    var(--color-brand) 0%,
+    var(--color-brand) var(--pct, 0%),
+    rgba(255, 255, 255, 0.28) var(--pct, 0%)
+  );
+}
+input[type="range"].seek::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.28);
+}
+input[type="range"].seek::-moz-range-progress {
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--color-brand);
+}
+input[type="range"].seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--color-brand);
+}
+input[type="range"].seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--color-brand);
+}
+
+.pitch-stripes {
+  background-image: repeating-linear-gradient(90deg, #1d8f55 0 9.09%, #1a834e 9.09% 18.18%);
+}
+
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+.animate-indeterminate {
+  animation: indeterminate 1.4s ease-in-out infinite;
+}
