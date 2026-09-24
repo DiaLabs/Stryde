@@ -38,8 +38,8 @@ function takeaways(result: AnalysisResult, teamFrames: TeamFrame[]): { text: str
     const k = z.thirds.indexOf(max);
     if (max > 0.45)
       out.push({
-        text: `${name}'s tracked players were concentrated in the ${thirdNames[k]} of the ${result.calibration.method === "homography" ? "pitch" : "camera view"} (${Math.round(max * 100)}% of presence).`,
-        q: result.calibration.method === "homography" ? "medium" : "low",
+        text: `${name}'s tracked players were concentrated in the ${thirdNames[k]} of the camera view (${Math.round(max * 100)}% of presence).`,
+        q: "low",
       });
   }
   const shots = result.events.filter((e) => e.type === "shot");

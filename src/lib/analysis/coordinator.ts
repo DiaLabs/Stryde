@@ -18,7 +18,7 @@ export const STAGES = [
   "Preparing video and model",
   "Detecting players and ball",
   "Tracking objects and assigning teams",
-  "Calibrating pitch and calculating team analytics",
+  "Calculating team analytics",
   "Preparing annotated playback",
 ] as const;
 
@@ -150,7 +150,7 @@ export class AnalysisCoordinator {
       modelUrl: profile.modelUrl,
       inputSize: profile.inputSize,
       playerThreshold: 0.2,
-      ballThreshold: 0.1,
+      ballThreshold: profile.sampleFps >= 8 ? 0.06 : 0.075,
       iouThreshold: 0.5,
       preferredProvider: preferred,
     };

@@ -6,7 +6,7 @@ import { readableTextColor } from "@/lib/vision/color";
 
 export function ThirdsComparison({ result }: { result: AnalysisResult }) {
   const [a, b] = result.analytics;
-  const labels = result.calibration.method === "homography" ? ["Left third", "Middle third", "Right third"] : ["Left of view", "Centre of view", "Right of view"];
+  const labels = ["Left of view", "Centre of view", "Right of view"];
   const { teamAColor, teamBColor, teamAName, teamBName } = result.teams;
   return (
     <div className="space-y-3">

@@ -1,11 +1,9 @@
 import type {
   AnalysisMode,
   AnalysisResult,
-  CalibrationPoint,
   CalibrationState,
   ExecutionProvider,
   MatchConfig,
-  QualityLevel,
   VideoMetadata,
   WorkerFrameRecord,
 } from "../types";
@@ -13,10 +11,9 @@ import { deltaE, hexToLab, labToHex } from "../vision/color";
 import { buildTeamFrames, calculateAnalytics } from "./analytics";
 import { selectBall } from "./ball";
 import { detectEvents } from "./events";
-import { applyHomography, isWellSpread, solveHomography } from "./homography";
 import { estimatePossession, sampleDurations } from "./possession";
 import { classifyTracks, estimateTeamColors, userColorModel } from "./teams";
-import { buildFrameSummaries, buildTracks, homographyMapper, imageSpaceMapper, mapTracks, type PitchMapper } from "./tracks";
+import { buildFrameSummaries, buildTracks, imageSpaceMapper, mapTracks, type PitchMapper } from "./tracks";
 
 /** Everything produced by the expensive browser-inference pass. Re-analysis reuses it. */
 export interface RawAnalysis {
@@ -39,26 +36,6 @@ export interface RawAnalysis {
 export interface AnalysisOverrides {
   teamAColor?: string;
   teamBColor?: string;
-  calibration?: { points: CalibrationPoint[]; referenceFrameIndex: number } | null;
-}
-
-export function computeCalibration(points: CalibrationPoint[]): {
-  H: number[] | null;
-  errorMeters: number;
-  message?: string;
-} {
-  if (points.length < 4) return { H: null, errorMeters: Infinity, message: "Select at least 4 landmark pairs." };
-  const src = points.map((p) => ({ x: p.imageX, y: p.imageY }));
-  const dst = points.map((p) => ({ x: p.pitchX, y: p.pitchY }));
-  if (!isWellSpread(dst) || !isWellSpread(src))
-    return { H: null, errorMeters: Infinity, message: "Points are nearly collinear; pick landmarks spread across the view." };
-  const H = solveHomography(src, dst);
-  if (!H) return { H: null, errorMeters: Infinity, message: "Could not solve the pitch mapping from these points." };
-  const errs = points.map((p) => {
-    const q = applyHomography(H, p.imageX, p.imageY);
-    return q ? Math.hypot(q.x - p.pitchX, q.y - p.pitchY) : 99;
-  });
-  return { H, errorMeters: errs.reduce((s, e) => s + e, 0) / errs.length };
 }
 
 export function buildResult(raw: RawAnalysis, overrides: AnalysisOverrides = {}): AnalysisResult {
@@ -95,50 +72,21 @@ export function buildResult(raw: RawAnalysis, overrides: AnalysisOverrides = {})
   const teamAColor = userA ?? (model ? labToHex(model.teamA) : "#2F80ED");
   const teamBColor = userB ?? (model ? labToHex(model.teamB) : "#EB5757");
 
-  // ---- calibration / pitch mapping
-  let calibration: CalibrationState = {
+  // ---- pitch mapping (camera-stabilized image space)
+  const calibration: CalibrationState = {
     available: false,
     quality: "low",
     method: "image_space",
-    notes: "No pitch calibration. Pitch positions are camera-stabilized image-space approximations; physical metrics are unavailable.",
+    notes: "Positions are mapped from camera-stabilized image coordinates.",
   };
-  let mapper: PitchMapper = imageSpaceMapper(summaries, tracks);
-  const cal = overrides.calibration;
-  if (cal && cal.points.length >= 4) {
-    const { H, errorMeters, message } = computeCalibration(cal.points);
-    const refIdx = summaries.findIndex((s) => s.frameIndex === cal.referenceFrameIndex);
-    if (H && refIdx >= 0) {
-      const hm = homographyMapper(summaries, H, refIdx);
-      const quality: QualityLevel =
-        errorMeters < 1.5 && hm.meanDrift < 0.1 ? "high" : errorMeters < 3.5 && hm.meanDrift < 0.22 ? "medium" : "low";
-      mapper = hm.mapper;
-      calibration = {
-        available: true,
-        quality,
-        method: "homography",
-        transform: H,
-        referenceTimestamp: summaries[refIdx].timestampSeconds,
-        referenceFrameIndex: cal.referenceFrameIndex,
-        points: cal.points,
-        reprojectionErrorMeters: errorMeters,
-        validFraction: hm.validFraction,
-        notes:
-          `Homography from ${cal.points.length} landmarks (mean error ${errorMeters.toFixed(1)} m), pan-compensated. ` +
-          `Applies to ${(hm.validFraction * 100).toFixed(0)}% of sampled frames; other frames are excluded from pitch metrics.`,
-      };
-      if (hm.validFraction < 0.5)
-        warnings.push("Calibration covers less than half of the clip (camera movement or cuts). Spatial metrics use calibrated frames only.");
-    } else {
-      warnings.push(`Pitch calibration could not be applied: ${message ?? "reference frame not found"}.`);
-    }
-  }
+  const mapper: PitchMapper = imageSpaceMapper(summaries, tracks);
   mapTracks(tracks, summaries, mapper);
-  const calibrated = calibration.method === "homography";
+  const calibrated = false;
 
   // ---- ball, possession, events
   const ball = selectBall(frames, summaries, mapper, aspect);
   const ballCoverage = frames.length ? ball.length / frames.length : 0;
-  if (ballCoverage < 0.15)
+  if (ballCoverage < 0.2)
     warnings.push(`Ball detected in only ${(ballCoverage * 100).toFixed(0)}% of sampled frames; possession and events are limited.`);
   const frameTimes = summaries.map((s) => ({ frameIndex: s.frameIndex, t: s.timestampSeconds }));
   const possession = estimatePossession(frameTimes, tracks, ball, calibrated);
@@ -146,7 +94,7 @@ export function buildResult(raw: RawAnalysis, overrides: AnalysisOverrides = {})
     summaries.map((s) => s.timestampSeconds),
     sampleInterval * 2.5
   );
-  const eventAnalysis = detectEvents(ball, summaries, possession, calibrated, aspect, raw.sampleFps);
+  const eventAnalysis = detectEvents(ball, summaries, possession, calibrated, aspect, raw.sampleFps, frames);
 
   // ---- analytics
   const teamFrames = buildTeamFrames(tracks, summaries, sampleInterval);

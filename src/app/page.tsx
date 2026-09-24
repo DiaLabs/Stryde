@@ -121,10 +121,10 @@ export default function Landing() {
             </p>
             <ul className="space-y-2 text-sm text-white/80">
               <li className="flex gap-2">
-                <Eye className="mt-0.5 size-4 shrink-0 text-brand" /> Coverage, calibration and confidence indicators on every result.
+                <Eye className="mt-0.5 size-4 shrink-0 text-brand" /> Coverage and confidence indicators on every result.
               </li>
               <li className="flex gap-2">
-                <Map className="mt-0.5 size-4 shrink-0 text-brand" /> Meters and speeds only after pitch calibration.
+                <Map className="mt-0.5 size-4 shrink-0 text-brand" /> Tactical views from the camera angle — relative patterns, not GPS.
               </li>
               <li className="flex gap-2">
                 <Crosshair className="mt-0.5 size-4 shrink-0 text-brand" /> Shots and goals are presented as possible events, never facts.

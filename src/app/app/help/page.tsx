@@ -12,7 +12,7 @@ const sections: { title: string; items: string[] }[] = [
       "Links detections over time into temporary tracks (e.g. “Team A · 12”). Track numbers are technical references, never player identities.",
       "Groups tracks into two teams by jersey color; ambiguous tracks, referees and goalkeepers usually stay Unknown.",
       "Estimates which team has the ball from ball-to-player proximity with temporal smoothing. Unknown or contested moments are excluded from the possession percentage.",
-      "Builds team occupancy and movement heatmaps, zone shares, team shape and — with pitch calibration — distances, speeds, goal-directed shots and possible goals.",
+      "Builds team occupancy and movement heatmaps, zone shares, team shape and estimated shot events.",
     ],
   },
   {
@@ -20,7 +20,7 @@ const sections: { title: string; items: string[] }[] = [
     items: [
       "Soccer only. Clips of about 30–60 seconds work best; up to 5 minutes is accepted.",
       "720p at 25 fps is the target. MP4 (H.264) is the most compatible; WebM and MOV work where your browser can decode them.",
-      "Static sideline views give the most reliable results. Broadcast footage works, but pans, zooms and cuts break tracks and limit calibration coverage.",
+      "Static sideline views give the most reliable results. Broadcast footage works, but pans, zooms and cuts can break tracks.",
     ],
   },
   {
@@ -32,19 +32,10 @@ const sections: { title: string; items: string[] }[] = [
     ],
   },
   {
-    title: "Pitch calibration",
-    items: [
-      "Without calibration, positions are camera-stabilized image coordinates stretched onto a standard pitch — useful for relative patterns, not true locations.",
-      "Calibrate by clicking at least four visible pitch markings on a frame and matching them to landmarks on the pitch diagram.",
-      "Calibration is compensated for camera pans but not zooms or cuts; frames that drift too far are excluded from pitch metrics.",
-    ],
-  },
-  {
     title: "Limitations",
     items: [
       "All outputs are estimates. Small, blurred or occluded balls are often missed, which makes possession, shots and goals uncertain.",
-      "Shots are detected from fast, straight ball travel; long passes or clearances can look similar, especially without calibration.",
-      "Possible goals are inferred from the projected ground position of the ball crossing the goal line; ball height and the net are not observed.",
+      "Shots are detected from fast, straight ball travel; long passes or clearances can look similar.",
       "Individual-player statistics, identity recognition, pass detection, formations and downloadable reports are not part of this release.",
       "Tracks, possession and events cannot be edited manually; only team names and colors can be corrected.",
     ],

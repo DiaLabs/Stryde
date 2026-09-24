@@ -8,15 +8,8 @@ import { Badge, Segmented } from "@/components/ui/primitives";
 import { usePlayback } from "./playback";
 import { PitchView, scopeRange, type PitchLayer, type PitchScope, type PitchTeam } from "./PitchView";
 
-export function CoordinateBadge({ result }: { result: AnalysisResult }) {
-  const c = result.calibration;
-  if (c.method === "homography")
-    return (
-      <Badge tone={c.quality === "high" ? "ok" : "info"}>
-        Calibrated pitch · {c.quality} quality · {Math.round((c.validFraction ?? 0) * 100)}% of frames
-      </Badge>
-    );
-  return <Badge tone="warn">Image-space approximation</Badge>;
+export function CoordinateBadge() {
+  return <Badge tone="info">Camera view</Badge>;
 }
 
 export function PitchPanel({
@@ -37,8 +30,6 @@ export function PitchPanel({
   const [layer, setLayer] = useState<PitchLayer>(defaultLayer);
   const [scope, setScope] = useState<PitchScope>(defaultScope);
   const { teamAName, teamBName } = result.teams;
-  const calibrated = result.calibration.method === "homography";
-
   const coarseTime = scope === "full" ? 0 : Math.round(time);
   const summary = useMemo(() => {
     const range = scopeRange(scope, coarseTime, result.video.durationSeconds);
@@ -62,7 +53,6 @@ export function PitchPanel({
       <div className="flex flex-wrap items-center gap-2">
         <Segmented
           label="Team"
-          size="sm"
           value={team}
           onChange={setTeam}
           options={[
@@ -73,7 +63,6 @@ export function PitchPanel({
         />
         <Segmented
           label="Visualization"
-          size="sm"
           value={layer}
           onChange={setLayer}
           options={[
@@ -86,7 +75,6 @@ export function PitchPanel({
         {layer !== "distribution" && (
           <Segmented
             label="Time scope"
-            size="sm"
             value={scope}
             onChange={setScope}
             options={[
@@ -100,8 +88,8 @@ export function PitchPanel({
 
       <PitchView result={result} teamFrames={teamFrames} team={team} layer={layer} scope={scope} time={time} />
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-2">
-        <CoordinateBadge result={result} />
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-ink-2">
+        <CoordinateBadge />
         <span>
           {layer === "distribution"
             ? live
@@ -122,13 +110,7 @@ export function PitchPanel({
             <div key={tm} className="rounded-lg border border-line p-2">
               <p className="font-semibold text-ink">{tm === "team_a" ? teamAName : teamBName}</p>
               {shape ? (
-                calibrated ? (
-                  <p className="text-ink-2">
-                    {shape.count} visible · width {shape.width.toFixed(0)} m · depth {shape.depth.toFixed(0)} m
-                  </p>
-                ) : (
-                  <p className="text-ink-2">{shape.count} visible · shape in image-space (not to scale)</p>
-                )
+                <p className="text-ink-2">{shape.count} visible · relative shape from camera view</p>
               ) : (
                 <p className="text-ink-2">Fewer than 3 players visible</p>
               )}
@@ -139,7 +121,7 @@ export function PitchPanel({
 
       {!compact && (
         <p className="text-xs text-ink-2">
-          {summary.join(" ")} {calibrated ? "" : "Positions are camera-stabilized image coordinates stretched to the pitch, not true pitch locations. Calibrate to map positions accurately."}
+          {summary.join(" ")}
         </p>
       )}
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Notice, QualityBadge } from "@/components/ui/primitives";
+import { Notice } from "@/components/ui/primitives";
 import { formatClock } from "@/lib/format";
 import type { AnalysisResult } from "@/lib/types";
 
@@ -26,18 +26,6 @@ export function QualityPanel({ result }: { result: AnalysisResult }) {
         (result.possessionTimeline.filter((s) => s.teamId !== "unknown").length / Math.max(1, result.possessionTimeline.length)) * 100
       )}% of analyzed time`,
     ],
-    [
-      "Pitch mapping",
-      result.calibration.method === "homography" ? (
-        <span className="inline-flex items-center gap-1.5">
-          Homography <QualityBadge quality={result.calibration.quality} label={result.calibration.quality} />
-        </span>
-      ) : (
-        <span className="inline-flex items-center gap-1.5">
-          Image-space <QualityBadge quality="low" label="approximate" />
-        </span>
-      ),
-    ],
     ["Model", `${p.model} · ${p.inputSize}px · ${p.provider === "webgpu" ? "WebGPU" : "WebAssembly"}`],
     ["Processing time", `${(p.durationMs / 1000).toFixed(0)} s`],
   ];
@@ -51,7 +39,6 @@ export function QualityPanel({ result }: { result: AnalysisResult }) {
           </div>
         ))}
       </dl>
-      {result.calibration.notes && <p className="text-xs text-ink-2">{result.calibration.notes}</p>}
       {[...result.processing.adaptations, ...result.warnings].length > 0 && (
         <div className="space-y-2">
           {[...new Set([...result.processing.adaptations, ...result.warnings])].map((w) => (

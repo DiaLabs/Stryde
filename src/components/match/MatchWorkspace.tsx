@@ -6,13 +6,12 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { Badge, Card, CardHeader, LinkButton, Notice } from "@/components/ui/primitives";
+import { Badge, Card, CardHeader, LinkButton } from "@/components/ui/primitives";
 import { buildTeamFrames } from "@/lib/analysis/analytics";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { buildRenderIndex } from "@/lib/render";
 import { useStryde, type MatchEntry } from "@/lib/store";
 import type { AnalysisResult, OverlayOptions } from "@/lib/types";
-import { CalibrationPanel } from "./CalibrationPanel";
 import { EventsList } from "./EventsList";
 import { PitchPanel } from "./PitchPanel";
 import { PlaybackProvider } from "./playback";
@@ -30,7 +29,6 @@ const TABS = [
   { id: "team", label: "Team analysis" },
   { id: "events", label: "Events" },
   { id: "summary", label: "Summary" },
-  { id: "calibration", label: "Pitch calibration" },
   { id: "teams", label: "Teams & data quality" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
@@ -65,7 +63,6 @@ export function MatchWorkspace({ entry, result }: { entry: MatchEntry; result: A
   );
 
   const partial = isPartial(result);
-  const calibrated = result.calibration.method === "homography";
 
   const right = (() => {
     switch (tab) {
@@ -105,7 +102,6 @@ export function MatchWorkspace({ entry, result }: { entry: MatchEntry; result: A
             </div>
           </Card>
         );
-      case "calibration":
       case "teams":
         return (
           <Card>
@@ -179,15 +175,6 @@ export function MatchWorkspace({ entry, result }: { entry: MatchEntry; result: A
         );
       case "summary":
         return <SummaryView result={result} teamFrames={teamFrames} />;
-      case "calibration":
-        return (
-          <Card>
-            <CardHeader title="Pitch calibration" subtitle={calibrated ? "Calibration active — spatial metrics use pitch coordinates" : "Optional — improves spatial accuracy"} />
-            <div className="px-5 pb-5">
-              <CalibrationPanel src={entry.url} result={result} index={index} onApply={(cal) => applyOverrides(entry.id, { calibration: cal })} />
-            </div>
-          </Card>
-        );
       case "teams":
         return (
           <Card>
@@ -223,8 +210,8 @@ export function MatchWorkspace({ entry, result }: { entry: MatchEntry; result: A
           </LinkButton>
         }
       />
-      <div className="px-4 sm:px-8">
-        <div role="tablist" aria-label="Match views" className="-mx-1 mb-5 flex gap-1 overflow-x-auto border-b border-line">
+      <div className="px-5 sm:px-10">
+        <div role="tablist" aria-label="Match views" className="-mx-1 mb-6 flex gap-1 overflow-x-auto border-b border-line">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -232,7 +219,7 @@ export function MatchWorkspace({ entry, result }: { entry: MatchEntry; result: A
               aria-selected={tab === t.id}
               onClick={() => setTab(t.id)}
               className={clsx(
-                "shrink-0 border-b-2 px-3 pt-1 pb-2.5 text-sm font-medium transition-colors",
+                "shrink-0 border-b-2 px-4 pt-1.5 pb-3 text-[15px] font-medium transition-colors",
                 tab === t.id ? "border-brand text-ink" : "border-transparent text-ink-2 hover:text-ink"
               )}
             >
@@ -241,18 +228,7 @@ export function MatchWorkspace({ entry, result }: { entry: MatchEntry; result: A
           ))}
         </div>
 
-        {!calibrated && (tab === "overview" || tab === "team") && (
-          <Notice
-            tone="info"
-            className="mb-5"
-            title="Spatial results are approximate"
-            action={<LinkToTab onClick={() => setTab("calibration")} label="Calibrate pitch" />}
-          >
-            Positions are mapped from camera-stabilized image coordinates. Distance, speed, team shape and goal estimates need pitch calibration.
-          </Notice>
-        )}
-
-        <div className="grid gap-5 pb-12 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="grid gap-6 pb-12 xl:grid-cols-[minmax(0,1fr)_440px]">
           <div className="min-w-0 space-y-5">
             <VideoPlayer src={entry.url} result={result} index={index} overlays={overlays} onOverlaysChange={setOverlays} />
             <div role="tabpanel" aria-label={TABS.find((t) => t.id === tab)?.label}>
