@@ -6,6 +6,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Logo } from "@/components/brand/Logo";
+import { ModelStatusBar } from "@/components/shell/ModelStatusBar";
+import { preloadAllModels } from "@/lib/models/cache";
 import { useStryde } from "@/lib/store";
 
 function useLatestCompletedMatchId(): string | undefined {
@@ -22,6 +24,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const hasMatches = useStryde((s) => s.order.length > 0);
 
   // Results live only in this tab's memory; warn before a reload or close discards them.
+  useEffect(() => {
+    preloadAllModels();
+  }, []);
+
   useEffect(() => {
     if (!hasMatches) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -102,6 +108,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Logo light={false} />
           </Link>
         </header>
+        <ModelStatusBar />
         <main className="min-w-0 flex-1">{children}</main>
       </div>
     </div>

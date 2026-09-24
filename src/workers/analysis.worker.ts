@@ -51,7 +51,7 @@ async function hasWebGpu(): Promise<boolean> {
   }
 }
 
-async function init(s: DetectorSettings, ortBase: string) {
+async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuffer) {
   settings = s;
   const warnings: string[] = [];
   if (!ort) {
@@ -69,18 +69,20 @@ async function init(s: DetectorSettings, ortBase: string) {
     ort.env.logLevel = "error";
   }
 
-  let modelBuffer: ArrayBuffer;
-  try {
-    const res = await fetch(s.modelUrl, { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    modelBuffer = await res.arrayBuffer();
-    validateModelBuffer(modelBuffer, s.modelUrl);
-  } catch (e) {
-    throw Object.assign(new Error(`Model download failed (${String(e)}).`), { code: "model_load" });
+  let buf = modelBuffer;
+  if (!buf) {
+    try {
+      const res = await fetch(s.modelUrl, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      buf = await res.arrayBuffer();
+    } catch (e) {
+      throw Object.assign(new Error(`Model download failed (${String(e)}).`), { code: "model_load" });
+    }
   }
+  validateModelBuffer(buf, s.modelUrl);
 
   const tryCreate = async (ep: ExecutionProvider) => {
-    const sess = await ort!.InferenceSession.create(new Uint8Array(modelBuffer), {
+    const sess = await ort!.InferenceSession.create(new Uint8Array(buf!), {
       executionProviders: [ep],
       graphOptimizationLevel: "all",
     });
@@ -225,7 +227,7 @@ async function handle(msg: WorkerRequest) {
   try {
     switch (msg.type) {
       case "init":
-        await init(msg.settings, msg.ortBase);
+        await init(msg.settings, msg.ortBase, msg.modelBuffer);
         break;
       case "frame":
         await processFrame(msg.frameIndex, msg.timestampSeconds, msg.bitmap);

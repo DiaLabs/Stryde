@@ -1,8 +1,10 @@
 "use client";
 
 import { create } from "zustand";
-import { AnalysisCoordinator } from "./analysis/coordinator";
+import { AnalysisCoordinator, detectWebGpu } from "./analysis/coordinator";
 import { buildResult, type AnalysisOverrides, type RawAnalysis } from "./analysis/pipeline";
+import { ensureModel } from "./models/cache";
+import { modelIdForMode } from "./models/registry";
 import type { AnalysisError, AnalysisResult, AnalysisSession, MatchConfig, VideoMetadata, WorkerFrameRecord } from "./types";
 
 export interface MatchEntry {
@@ -82,48 +84,84 @@ export const useStryde = create<StoreState>((set, get) => {
     startAnalysis(id) {
       const m = get().matches[id];
       if (!m || coordinators.has(id)) return;
-      const coord = new AnalysisCoordinator(id, m.file, m.meta, m.config, {
-        onProgress: (session, preview) => patch(id, preview ? { session, lastRecord: preview.record } : { session }),
-        onComplete: (raw) => {
-          // Post-processing is synchronous and fast; yield a frame so the UI can show the stage.
-          setTimeout(() => {
-            try {
-              const current = get().matches[id];
-              const result = buildResult(raw, current?.overrides ?? {});
-              patch(id, (mm) => ({
-                raw,
-                result,
-                session: {
-                  ...mm.session,
-                  status: "complete",
-                  progress: 1,
-                  stage: "Complete",
-                  stageIndex: 5,
-                  completedAt: Date.now(),
-                },
-              }));
-            } catch (e) {
-              patch(id, (mm) => ({
-                error: {
-                  code: "analytics_failed",
-                  message: `Analytics could not be computed: ${String((e as Error).message ?? e)}`,
-                  recoverable: true,
-                  suggestedAction: "Retry the analysis; if it fails again try Faster mode.",
-                },
-                session: { ...mm.session, status: "failed" },
-              }));
-            }
-            coordinators.delete(id);
-          }, 50);
-        },
-        onError: (error) => {
-          patch(id, { error });
-          coordinators.delete(id);
+
+      patch(id, {
+        error: undefined,
+        raw: undefined,
+        result: undefined,
+        session: {
+          ...m.session,
+          status: "loading",
+          stage: "Loading detection model…",
+          stageIndex: 0,
+          progress: 0.01,
+          startedAt: Date.now(),
+          warnings: [],
         },
       });
-      coordinators.set(id, coord);
-      patch(id, { error: undefined, raw: undefined, result: undefined });
-      void coord.start();
+
+      void (async () => {
+        try {
+          const gpu = await detectWebGpu();
+          const modelId = modelIdForMode(m.config.mode, gpu);
+          const modelBuffer = await ensureModel(modelId);
+
+          if (coordinators.has(id)) return;
+          const current = get().matches[id];
+          if (!current) return;
+
+          const coord = new AnalysisCoordinator(id, current.file, current.meta, current.config, {
+            onProgress: (session, preview) => patch(id, preview ? { session, lastRecord: preview.record } : { session }),
+            onComplete: (raw) => {
+              setTimeout(() => {
+                try {
+                  const live = get().matches[id];
+                  const result = buildResult(raw, live?.overrides ?? {});
+                  patch(id, (mm) => ({
+                    raw,
+                    result,
+                    session: {
+                      ...mm.session,
+                      status: "complete",
+                      progress: 1,
+                      stage: "Complete",
+                      stageIndex: 5,
+                      completedAt: Date.now(),
+                    },
+                  }));
+                } catch (e) {
+                  patch(id, (mm) => ({
+                    error: {
+                      code: "analytics_failed",
+                      message: `Analytics could not be computed: ${String((e as Error).message ?? e)}`,
+                      recoverable: true,
+                      suggestedAction: "Retry the analysis; if it fails again try Faster mode.",
+                    },
+                    session: { ...mm.session, status: "failed" },
+                  }));
+                }
+                coordinators.delete(id);
+              }, 50);
+            },
+            onError: (error) => {
+              patch(id, { error, session: { ...get().matches[id]!.session, status: "failed" } });
+              coordinators.delete(id);
+            },
+          });
+          coordinators.set(id, coord);
+          await coord.start(modelBuffer);
+        } catch (e) {
+          patch(id, {
+            error: {
+              code: "model_load",
+              message: `The detection model could not be loaded: ${String((e as Error).message ?? e)}`,
+              recoverable: true,
+              suggestedAction: "Check your connection, wait for the model bar at the top to finish, then retry.",
+            },
+            session: { ...get().matches[id]!.session, status: "failed" },
+          });
+        }
+      })();
     },
 
     retryAnalysis(id, configPatch) {

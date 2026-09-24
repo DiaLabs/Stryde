@@ -275,7 +275,7 @@ export interface DetectorSettings {
 }
 
 export type WorkerRequest =
-  | { type: "init"; settings: DetectorSettings; ortBase: string }
+  | { type: "init"; settings: DetectorSettings; ortBase: string; modelBuffer?: ArrayBuffer }
   | { type: "frame"; frameIndex: number; timestampSeconds: number; bitmap: ImageBitmap }
   | { type: "reset" }
   | { type: "dispose" };

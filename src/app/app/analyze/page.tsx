@@ -93,7 +93,7 @@ export default function AnalyzePage() {
 
   return (
     <div className="pb-12">
-      <PageHeader title="Analyze a match" subtitle="Set up the teams, then choose a clip — analysis starts automatically once the video is validated." />
+      <PageHeader title="Analyze a match" subtitle="Set up the teams, then choose a clip — analysis starts once the model is ready and the video is validated." />
       <div className="grid gap-5 px-4 sm:px-8 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card className="order-2 xl:order-1">
           <CardHeader title="Match video" subtitle="MP4 (H.264) or WebM · 30–60 s recommended · 720p at 25 fps is the target quality" />
@@ -205,8 +205,8 @@ export default function AnalyzePage() {
               <div className="flex gap-3 rounded-lg border border-line p-3">
                 <Zap className="mt-0.5 size-4 shrink-0 text-[#11704a]" aria-hidden />
                 <div>
-                  <p className="text-sm font-semibold">Starts automatically</p>
-                  <p className="text-xs text-ink-2">No extra click: validation passes, analysis begins.</p>
+                  <p className="text-sm font-semibold">Starts when ready</p>
+                  <p className="text-xs text-ink-2">Models preload in the background; analysis begins after the model and video are both ready.</p>
                 </div>
               </div>
               <div className="flex gap-3 rounded-lg border border-line p-3">

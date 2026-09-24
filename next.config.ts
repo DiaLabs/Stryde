@@ -14,7 +14,7 @@ const nextConfig: NextConfig = {
       {
         source: "/models/:file*",
         headers: [
-          { key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" },
+          { key: "Cache-Control", value: "public, max-age=2592000, stale-while-revalidate=86400" },
           { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
         ],
       },

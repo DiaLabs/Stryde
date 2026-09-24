@@ -11,6 +11,8 @@ import type {
 } from "../types";
 import { seekTo, waitForEvent } from "../video";
 import type { RawAnalysis } from "./pipeline";
+import { ensureModel } from "../models/cache";
+import { MODELS } from "../models/registry";
 
 export const STAGES = [
   "Preparing video and model",
@@ -27,12 +29,10 @@ interface ModeProfile {
   sampleFps: number;
 }
 
-const ASSET_VERSION = "2";
-
 export const MODE_PROFILES: Record<"faster" | "detailed" | "detailed_cpu", ModeProfile> = {
-  faster: { model: "YOLO11n", modelUrl: `/models/yolo11n-960.onnx?v=${ASSET_VERSION}`, inputSize: 960, sampleFps: 5 },
-  detailed: { model: "YOLO11s", modelUrl: `/models/yolo11s-960.onnx?v=${ASSET_VERSION}`, inputSize: 960, sampleFps: 10 },
-  detailed_cpu: { model: "YOLO11n", modelUrl: `/models/yolo11n-960.onnx?v=${ASSET_VERSION}`, inputSize: 960, sampleFps: 8 },
+  faster: { model: MODELS.yolo11n.name, modelUrl: MODELS.yolo11n.url, inputSize: 960, sampleFps: 5 },
+  detailed: { model: MODELS.yolo11s.name, modelUrl: MODELS.yolo11s.url, inputSize: 960, sampleFps: 10 },
+  detailed_cpu: { model: MODELS.yolo11n.name, modelUrl: MODELS.yolo11n.url, inputSize: 960, sampleFps: 8 },
 };
 
 export async function detectWebGpu(): Promise<boolean> {
@@ -143,7 +143,7 @@ export class AnalysisCoordinator {
     return w;
   }
 
-  private async initWorker(profile: ModeProfile, preferred: ExecutionProvider) {
+  private async initWorker(profile: ModeProfile, preferred: ExecutionProvider, modelBuffer: ArrayBuffer) {
     this.worker?.terminate();
     this.worker = this.spawnWorker();
     const settings: DetectorSettings = {
@@ -157,7 +157,7 @@ export class AnalysisCoordinator {
     const ready = new Promise<{ provider: ExecutionProvider; warnings: string[] }>((resolve, reject) => {
       this.readyWaiter = { resolve, reject };
     });
-    this.post({ type: "init", settings, ortBase: "/ort/" });
+    this.post({ type: "init", settings, ortBase: "/ort/", modelBuffer });
     return ready;
   }
 
@@ -192,9 +192,9 @@ export class AnalysisCoordinator {
     this.stopRequested = true;
   }
 
-  async start(): Promise<void> {
+  async start(modelBuffer: ArrayBuffer): Promise<void> {
     const started = performance.now();
-    this.update({ status: "loading", stage: STAGES[0], stageIndex: 0, progress: 0.01, startedAt: Date.now() });
+    this.update({ status: "loading", stage: "Preparing video…", stageIndex: 0, progress: 0.02, startedAt: Date.now() });
     const warnings: string[] = [];
     const adaptations: string[] = [];
 
@@ -221,13 +221,14 @@ export class AnalysisCoordinator {
     }
     let provider: ExecutionProvider;
     try {
-      const r = await this.initWorker(profile, gpu ? "webgpu" : "wasm");
+      const r = await this.initWorker(profile, gpu ? "webgpu" : "wasm", modelBuffer);
       provider = r.provider;
       warnings.push(...r.warnings);
       if (provider === "wasm" && profile === MODE_PROFILES.detailed) {
         profile = MODE_PROFILES.detailed_cpu;
         adaptations.push("GPU backend failed: switched to the smaller model at 8 samples/s on the CPU backend.");
-        const r2 = await this.initWorker(profile, "wasm");
+        const nBuf = await ensureModel("yolo11n");
+        const r2 = await this.initWorker(profile, "wasm", nBuf);
         provider = r2.provider;
       }
     } catch (e) {
@@ -310,7 +311,8 @@ export class AnalysisCoordinator {
             this.pending.clear();
             profile = MODE_PROFILES.faster;
             try {
-              const r = await this.initWorker(profile, "wasm");
+              const nBuf = await ensureModel("yolo11n");
+              const r = await this.initWorker(profile, "wasm", nBuf);
               provider = r.provider;
             } catch (e2) {
               fatal = e2 as AnalysisError;
