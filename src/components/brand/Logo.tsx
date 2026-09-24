@@ -1,4 +1,6 @@
 import clsx from "clsx";
+import Image from "next/image";
+import logo from "@/app/logo.png";
 
 export function LogoMark({ className }: { className?: string }) {
   return (
@@ -12,11 +14,15 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-export function Logo({ className, light = true }: { className?: string; light?: boolean }) {
+export function Logo({ className, light = true, mark = "s" }: { className?: string; light?: boolean; mark?: "s" | "image" }) {
   return (
     <span className={clsx("inline-flex items-center gap-2", className)}>
-      <LogoMark />
-      <span className={clsx("text-xl font-extrabold tracking-[0.12em]", light ? "text-white" : "text-ink")}>STRYDE</span>
+      {mark === "image" ? (
+        <Image src={logo} alt="" width={40} height={40} className="size-10 object-contain" />
+      ) : (
+        <LogoMark />
+      )}
+      <span className={clsx("text-lg font-extrabold tracking-[0.14em]", light ? "text-white" : "text-ink")}>STRYDE</span>
     </span>
   );
 }
