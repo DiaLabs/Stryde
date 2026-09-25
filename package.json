@@ -1,6 +1,6 @@
 {
   "name": "stryde",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "assets": "node scripts/download-assets.mjs && node scripts/build-assets.mjs",
