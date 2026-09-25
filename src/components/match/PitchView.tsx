@@ -11,32 +11,39 @@ export type PitchLayer = "occupancy" | "movement" | "distribution" | "zones";
 export type PitchScope = "full" | "upto" | "window";
 
 const SEGMENTS = pitchLineSegments();
-const MARGIN = 3; // meters around the pitch
+const MARGIN = 8; // meters around the pitch; extra room for the heatmap legend
 
 function blurGrid(grid: number[][]): number[][] {
   const k = [
-    [1, 4, 6, 4, 1],
-    [4, 16, 24, 16, 4],
-    [6, 24, 36, 24, 6],
-    [4, 16, 24, 16, 4],
-    [1, 4, 6, 4, 1],
+    [1, 4, 7, 4, 1],
+    [4, 16, 26, 16, 4],
+    [7, 26, 41, 26, 7],
+    [4, 16, 26, 16, 4],
+    [1, 4, 7, 4, 1],
   ];
   const rad = 2;
-  return grid.map((row, y) =>
-    row.map((_, x) => {
-      let s = 0;
-      let w = 0;
-      for (let dy = -rad; dy <= rad; dy++)
-        for (let dx = -rad; dx <= rad; dx++) {
-          const yy = y + dy;
-          const xx = x + dx;
-          if (yy < 0 || yy >= GRID_Y || xx < 0 || xx >= GRID_X) continue;
-          s += grid[yy][xx] * k[dy + rad][dx + rad];
-          w += k[dy + rad][dx + rad];
-        }
-      return s / w;
-    })
-  );
+
+  const convolve = (src: number[][]) =>
+    src.map((row, y) =>
+      row.map((_, x) => {
+        let s = 0;
+        let w = 0;
+        for (let dy = -rad; dy <= rad; dy++)
+          for (let dx = -rad; dx <= rad; dx++) {
+            const yy = y + dy;
+            const xx = x + dx;
+            if (yy < 0 || yy >= GRID_Y || xx < 0 || xx >= GRID_X) continue;
+            s += src[yy][xx] * k[dy + rad][dx + rad];
+            w += k[dy + rad][dx + rad];
+          }
+        return s / w;
+      })
+    );
+
+  let out = convolve(grid);
+  out = convolve(out);
+  out = convolve(out);
+  return out;
 }
 
 function percentile(values: number[], p: number): number {
@@ -45,22 +52,41 @@ function percentile(values: number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? sorted[sorted.length - 1];
 }
 
-function heatColor(v: number, r: number, g: number, b: number, singleTeam: boolean) {
+/** Vibrant thermal heatmap gradient: blue → cyan → green → yellow → orange → red. */
+function thermalColor(v: number): { r: number; g: number; b: number } {
   const t = Math.max(0, Math.min(1, v));
-  if (singleTeam) {
-    const hot = Math.max(0, t - 0.35) / 0.65;
-    return {
-      r: Math.round(r + (255 - r) * hot * 0.92),
-      g: Math.round(g + (248 - g) * hot * 0.88),
-      b: Math.round(b + (120 - b) * hot * 0.75),
-      a: Math.round((0.22 + t * 0.78) * 255),
-    };
+  const stops = [
+    { t: 0.0, c: [20, 60, 165] },    // deep blue
+    { t: 0.18, c: [30, 145, 215] },  // cyan-blue
+    { t: 0.34, c: [50, 200, 195] },  // cyan
+    { t: 0.5, c: [120, 220, 85] },   // green
+    { t: 0.66, c: [255, 235, 60] },  // yellow
+    { t: 0.82, c: [255, 130, 30] },  // orange
+    { t: 1.0, c: [230, 25, 25] },    // bright red
+  ];
+  let a = stops[0];
+  let b = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (t >= stops[i].t && t <= stops[i + 1].t) {
+      a = stops[i];
+      b = stops[i + 1];
+      break;
+    }
   }
+  const range = b.t - a.t || 1;
+  const k = (t - a.t) / range;
+  const mix = (i: number) => Math.round(a.c[i] + (b.c[i] - a.c[i]) * k);
+  return { r: mix(0), g: mix(1), b: mix(2) };
+}
+
+function teamHeatColor(v: number, r: number, g: number, b: number) {
+  const t = Math.max(0, Math.min(1, v));
+  const hot = Math.max(0, t - 0.3) / 0.7;
   return {
-    r,
-    g,
-    b,
-    a: Math.round((0.18 + t * 0.72) * 255),
+    r: Math.round(r + (255 - r) * hot * 0.95),
+    g: Math.round(g + (245 - g) * hot * 0.9),
+    b: Math.round(b + (100 - b) * hot * 0.7),
+    a: Math.round((0.2 + t * 0.8) * 255),
   };
 }
 
@@ -145,33 +171,69 @@ export function PitchView({
       // heatmap layers
       if (grids) {
         ctx.save();
-        ctx.globalCompositeOperation = grids.length > 1 ? "screen" : "source-over";
+        const single = grids.length === 1;
+        ctx.globalCompositeOperation = single ? "source-over" : "screen";
+
         for (const g of grids) {
           if (g.total <= 0) continue;
           const bl = blurGrid(g.grid);
-          const norm = Math.max(1e-9, percentile(bl.flat(), 0.9));
+          const norm = Math.max(1e-9, percentile(bl.flat(), 0.92));
           const off = document.createElement("canvas");
           off.width = GRID_X;
           off.height = GRID_Y;
           const octx = off.getContext("2d")!;
           const img = octx.createImageData(GRID_X, GRID_Y);
-          const [r, gg, b] = hexToRgb(g.team === "team_a" ? teamAColor : teamBColor);
-          const single = grids.length === 1;
+          const [tr, tg, tb] = hexToRgb(g.team === "team_a" ? teamAColor : teamBColor);
+
           for (let y = 0; y < GRID_Y; y++)
             for (let x = 0; x < GRID_X; x++) {
               const raw = bl[y][x] / norm;
-              const v = Math.pow(raw, 0.48);
+              const v = Math.pow(raw, 0.55);
               const i = (y * GRID_X + x) * 4;
-              const c = heatColor(v, r, gg, b, single);
-              img.data[i] = c.r;
-              img.data[i + 1] = c.g;
-              img.data[i + 2] = c.b;
-              img.data[i + 3] = raw > 0.02 ? Math.max(c.a, single ? 95 : 75) : 0;
+              if (single) {
+                const c = thermalColor(v);
+                img.data[i] = c.r;
+                img.data[i + 1] = c.g;
+                img.data[i + 2] = c.b;
+                img.data[i + 3] = raw > 0.015 ? Math.round((0.25 + v * 0.75) * 230) : 0;
+              } else {
+                const c = teamHeatColor(v, tr, tg, tb);
+                img.data[i] = c.r;
+                img.data[i + 1] = c.g;
+                img.data[i + 2] = c.b;
+                img.data[i + 3] = raw > 0.02 ? Math.max(c.a, 70) : 0;
+              }
             }
           octx.putImageData(img, 0, 0);
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = "high";
           ctx.drawImage(off, X(0), Y(0), PITCH_LENGTH * s, PITCH_WIDTH * s);
+        }
+
+        // legend for single-team thermal heatmap (outside pitch on the right)
+        if (single) {
+          const lw = 10;
+          const lh = 92;
+          const lx = X(PITCH_LENGTH) + 10;
+          const ly = Y(PITCH_WIDTH / 2) - lh / 2;
+          const grad = ctx.createLinearGradient(0, ly + lh, 0, ly);
+          const stops = [0.0, 0.18, 0.34, 0.5, 0.66, 0.82, 1.0];
+          stops.forEach((st) => {
+            const c = thermalColor(st);
+            grad.addColorStop(st, `rgb(${c.r},${c.g},${c.b})`);
+          });
+          ctx.fillStyle = grad;
+          ctx.fillRect(lx, ly, lw, lh);
+          ctx.strokeStyle = "rgba(255,255,255,0.4)";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(lx, ly, lw, lh);
+          ctx.fillStyle = "rgba(255,255,255,0.92)";
+          ctx.font = `600 ${Math.max(8, s * 1.25)}px Inter, sans-serif`;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "top";
+          ctx.fillText("High", lx + lw + 5, ly);
+          ctx.textBaseline = "bottom";
+          ctx.fillText("Low", lx + lw + 5, ly + lh);
         }
         ctx.restore();
       }

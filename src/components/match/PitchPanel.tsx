@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { frameAt, teamShape, zoneShares, type TeamFrame } from "@/lib/analysis/analytics";
 import { formatClock } from "@/lib/format";
 import type { AnalysisResult } from "@/lib/types";
@@ -26,9 +26,19 @@ export function PitchPanel({
   compact?: boolean;
 }) {
   const { time } = usePlayback();
-  const [team, setTeam] = useState<PitchTeam>("both");
   const [layer, setLayer] = useState<PitchLayer>(defaultLayer);
+  const isHeatmap = layer === "occupancy" || layer === "movement";
+  const [team, setTeam] = useState<PitchTeam>(isHeatmap ? "team_a" : "both");
   const [scope, setScope] = useState<PitchScope>(defaultScope);
+
+  // default to single-team view for heatmap layers so the thermal scale shows
+  useEffect(() => {
+    setTeam((cur) => {
+      if (isHeatmap && cur === "both") return "team_a";
+      if (!isHeatmap && (cur === "team_a" || cur === "team_b")) return "both";
+      return cur;
+    });
+  }, [isHeatmap]);
   const { teamAName, teamBName } = result.teams;
   const coarseTime = scope === "full" ? 0 : Math.round(time);
   const summary = useMemo(() => {
