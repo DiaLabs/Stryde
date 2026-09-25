@@ -70,38 +70,34 @@ function MatchPageInner() {
 
   if (s === "cancelled") {
     return (
-      <>
-        <PageHeader title={title} subtitle={entry.meta.fileName} />
-        <div className="px-4 sm:px-8">
-          <Card>
-            <EmptyState
-              icon={<Ban className="size-5" />}
-              title="Analysis cancelled"
-              action={
-                <div className="flex flex-wrap justify-center gap-2">
-                  <Button onClick={() => retry(entry.id)}>
-                    <RotateCcw className="size-4" /> Restart analysis
-                  </Button>
-                  <LinkButton href="/app/analyze" variant="secondary">
-                    Choose another video
-                  </LinkButton>
-                </div>
-              }
-            >
-              Temporary data was released. The video is still selected in this tab, so you can restart without choosing it again.
-            </EmptyState>
-          </Card>
-        </div>
-      </>
+      <div className="flex min-h-[calc(100vh-3rem)] flex-col items-center justify-center px-4 py-10 sm:px-8">
+        <Card className="w-full max-w-xl">
+          <EmptyState
+            icon={
+              <div className="grid size-14 place-items-center rounded-2xl bg-warn-bg text-warn">
+                <Ban className="size-7" />
+              </div>
+            }
+            title="Analysis cancelled"
+            action={
+              <div className="flex flex-wrap justify-center gap-3">
+                <Button size="lg" onClick={() => retry(entry.id)}>
+                  <RotateCcw className="size-5" /> Restart analysis
+                </Button>
+                <LinkButton href="/app/analyze" variant="secondary" size="lg">
+                  Choose another video
+                </LinkButton>
+              </div>
+            }
+          >
+            Temporary data was released. The video is still selected in this tab, so you can restart without choosing it again.
+          </EmptyState>
+        </Card>
+      </div>
     );
   }
 
-  return (
-    <>
-      <PageHeader title={title} subtitle="Match processing" />
-      <ProcessingView entry={entry} />
-    </>
-  );
+  return <ProcessingView entry={entry} title={title} />;
 }
 
 export default function MatchPage() {
