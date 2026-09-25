@@ -13,18 +13,21 @@ export default function MatchesPage() {
       <PageHeader
         title="Matches"
         subtitle="Analyses from this browser session. They are kept in memory only — reloading or closing the tab clears them."
-        actions={
-          <LinkButton href="/app/analyze">
-            <Upload className="size-4" /> Upload match
-          </LinkButton>
-        }
       />
       <div className="px-4 sm:px-8">
         <Card>
           {count ? (
             <MatchList />
           ) : (
-            <EmptyState icon={<Film className="size-5" />} title="No matches in this session" action={<LinkButton href="/app/analyze">Analyze a match</LinkButton>}>
+            <EmptyState
+              icon={<Film className="size-6" />}
+              title="No matches in this session"
+              action={
+                <LinkButton href="/app/analyze" size="lg">
+                  <Upload className="size-5" /> Analyze a match
+                </LinkButton>
+              }
+            >
               Stryde does not keep a cloud history. Analyze a clip to see it listed here while this tab stays open.
             </EmptyState>
           )}
