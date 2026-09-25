@@ -14,7 +14,7 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-export function Logo({ className, light = true, mark = "s" }: { className?: string; light?: boolean; mark?: "s" | "image" }) {
+export function Logo({ className, light = true, mark = "image" }: { className?: string; light?: boolean; mark?: "s" | "image" }) {
   return (
     <span className={clsx("inline-flex items-center gap-2", className)}>
       {mark === "image" ? (

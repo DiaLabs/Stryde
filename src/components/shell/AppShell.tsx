@@ -99,7 +99,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Menu className="size-5" />
             </button>
             <Link href="/" aria-label="Stryde home">
-              <Logo light={false} />
+              <Logo light={false} mark="image" />
             </Link>
           </div>
           <p className="flex items-center gap-1.5 text-xs text-ink-2">

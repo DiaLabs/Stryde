@@ -142,7 +142,7 @@ export default function Landing() {
         </p>
         <div className="relative mx-auto grid max-w-6xl gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[1.1fr_1.6fr] lg:py-20">
           <div>
-            <Logo light={false} />
+            <Logo light={false} mark="image" />
             <p className="mt-3 max-w-xs text-sm text-ink-2">Football footage to team insights</p>
             <p className="mt-6 text-sm text-ink-2">Stryde by DiaLabs</p>
           </div>
