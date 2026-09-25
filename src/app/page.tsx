@@ -18,9 +18,6 @@ export default function Landing() {
             <a href="#how" className="rounded-full px-4 py-2.5 text-white/75 hover:bg-white/10 hover:text-white">
               How it works
             </a>
-            <Link href="/app/help" className="rounded-full px-4 py-2.5 text-white/75 hover:bg-white/10 hover:text-white">
-              Limitations
-            </Link>
           </nav>
           <Link
             href="/app/analyze"
@@ -40,10 +37,7 @@ export default function Landing() {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,rgba(255,255,255,0.08),transparent_55%)]" />
         <div className="relative mx-auto flex w-full max-w-[90rem] flex-col items-center justify-center gap-8 px-5 pt-28 pb-16 sm:px-8 lg:flex-row lg:gap-10">
           <div className="w-full max-w-lg">
-            <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-white/80">
-              <span className="size-1.5 animate-pulse rounded-full bg-brand" /> Football analytics, right in your browser
-            </p>
-            <h1 className="mt-6 font-display text-5xl leading-[1.02] font-medium tracking-tight sm:text-6xl 2xl:text-7xl">
+            <h1 className="font-display text-5xl leading-[1.02] font-medium tracking-tight sm:text-6xl 2xl:text-7xl">
               Every run.
               <span className="block">Every pass.</span>
               <span className="mt-1 inline-block border-b-2 border-[#7dffc6] pb-1 italic leading-none">
@@ -69,7 +63,7 @@ export default function Landing() {
               </Link>
             </div>
           </div>
-          <div className="relative w-full max-w-3xl shrink-0">
+          <div className="relative w-full max-w-[53rem] shrink-0 lg:max-w-[41.8rem] xl:max-w-[45.6rem]">
             <DetectionDemo />
           </div>
         </div>

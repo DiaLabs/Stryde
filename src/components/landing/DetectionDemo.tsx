@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { PITCH_LENGTH, PITCH_WIDTH } from "@/lib/analysis/pitch";
 
 interface Pt {
   x: number;
@@ -18,41 +19,57 @@ interface Player {
   team: 0 | 1;
   u: number;
   v: number;
-  label: string;
-  conf: number;
 }
 
 const PLAYERS: Player[] = [
-  { team: 0, u: 0.07, v: 0.5, label: "BLUE 1", conf: 0.93 },
-  { team: 0, u: 0.22, v: 0.18, label: "BLUE 3", conf: 0.88 },
-  { team: 0, u: 0.2, v: 0.4, label: "BLUE 5", conf: 0.91 },
-  { team: 0, u: 0.2, v: 0.62, label: "BLUE 4", conf: 0.9 },
-  { team: 0, u: 0.23, v: 0.84, label: "BLUE 2", conf: 0.86 },
-  { team: 0, u: 0.4, v: 0.36, label: "BLUE 8", conf: 0.92 },
-  { team: 0, u: 0.42, v: 0.66, label: "BLUE 10", conf: 0.89 },
-  { team: 1, u: 0.58, v: 0.34, label: "WHITE 8", conf: 0.9 },
-  { team: 1, u: 0.6, v: 0.68, label: "WHITE 6", conf: 0.87 },
-  { team: 1, u: 0.76, v: 0.5, label: "WHITE 9", conf: 0.94 },
-  { team: 1, u: 0.93, v: 0.5, label: "WHITE 1", conf: 0.91 },
+  { team: 0, u: 0.08, v: 0.52 },
+  { team: 0, u: 0.22, v: 0.2 },
+  { team: 0, u: 0.2, v: 0.42 },
+  { team: 0, u: 0.21, v: 0.64 },
+  { team: 0, u: 0.24, v: 0.84 },
+  { team: 0, u: 0.4, v: 0.36 },
+  { team: 0, u: 0.42, v: 0.66 },
+  { team: 1, u: 0.58, v: 0.34 },
+  { team: 1, u: 0.6, v: 0.68 },
+  { team: 1, u: 0.76, v: 0.5 },
+  { team: 1, u: 0.92, v: 0.5 },
 ];
+
+const TEAM_A = { name: "BLUE", color: "#2F80ED", glow: "#7eb6ff" };
+const TEAM_B = { name: "WHITE", color: "#f4f7f8", glow: "#ffffff" };
+const TEAMS = [TEAM_A, TEAM_B];
+
+const PITCH_RATIO = PITCH_LENGTH / PITCH_WIDTH;
 
 function lerp(a: Pt, b: Pt, t: number): Pt {
   return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
 function project(u: number, v: number, q: Quad): Pt {
-  return lerp(lerp(q.fl, q.fr, u), lerp(q.nl, q.nr, u), v);
+  return lerp(lerp(q.nl, q.nr, u), lerp(q.fl, q.fr, u), v);
 }
 
-function quadOf(w: number, h: number): Quad {
-  const x = w * 0.03;
-  const y = h * 0.05;
+/** End-line camera with gentle tilt; near/far edges are goal lines (length), depth is pitch width. */
+function quadOf(w: number, h: number, t: number): Quad {
+  const sway = Math.sin(t * 0.2) * w * 0.004;
+  const bob = Math.sin(t * 0.14 + 0.5) * h * 0.002;
+  const cx = w * 0.5;
+
+  const lengthSpan = Math.min(w * 0.89, h * PITCH_RATIO * 0.91);
+  const depthSpan = lengthSpan / PITCH_RATIO;
+  const farScale = 0.82;
+  const baseY = Math.min(h * 0.92, h * 0.52 + depthSpan * 0.5) + bob;
+
   return {
-    fl: { x, y },
-    fr: { x: w - x, y },
-    nr: { x: w - x, y: h - y },
-    nl: { x, y: h - y },
+    nl: { x: cx - lengthSpan / 2 + sway, y: baseY },
+    nr: { x: cx + lengthSpan / 2 - sway, y: baseY },
+    fr: { x: cx + (lengthSpan * farScale) / 2 + sway * 0.3, y: baseY - depthSpan },
+    fl: { x: cx - (lengthSpan * farScale) / 2 - sway * 0.3, y: baseY - depthSpan },
   };
+}
+
+function depth(u: number, v: number): number {
+  return clamp(0.45 + (1 - v) * 0.45 + (1 - Math.abs(u - 0.5) * 2) * 0.08, 0.45, 1);
 }
 
 function trace(ctx: CanvasRenderingContext2D, pts: Pt[], close = false) {
@@ -82,22 +99,52 @@ function clamp(n: number, min: number, max: number) {
 
 const PASSERS = [5, 6, 7, 8, 9];
 
-function makeGrassNoise() {
+function makeGrassTexture() {
   const canvas = document.createElement("canvas");
-  canvas.width = 160;
-  canvas.height = 160;
+  canvas.width = 256;
+  canvas.height = 256;
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
-  const image = ctx.createImageData(160, 160);
-  for (let i = 0; i < image.data.length; i += 4) {
+
+  const base = ctx.createImageData(256, 256);
+  for (let i = 0; i < base.data.length; i += 4) {
     const n = Math.random();
-    image.data[i] = 20 + n * 40;
-    image.data[i + 1] = 70 + n * 90;
-    image.data[i + 2] = 30 + n * 30;
-    image.data[i + 3] = 28 + n * 55;
+    base.data[i] = 22 + n * 32;
+    base.data[i + 1] = 80 + n * 90;
+    base.data[i + 2] = 36 + n * 45;
+    base.data[i + 3] = 255;
   }
-  ctx.putImageData(image, 0, 0);
+  ctx.putImageData(base, 0, 0);
+
+  // faint mowing stripes
+  ctx.globalCompositeOperation = "overlay";
+  for (let i = 0; i < 256; i += 4) {
+    ctx.fillStyle = `rgba(255,255,255,${0.03 + (i % 8 === 0 ? 0.04 : 0)})`;
+    ctx.fillRect(i, 0, 2, 256);
+  }
+  ctx.globalCompositeOperation = "source-over";
   return canvas;
+}
+
+function drawGroundShadow(ctx: CanvasRenderingContext2D, q: Quad) {
+  const cx = (q.nl.x + q.nr.x) / 2;
+  const cy = q.nl.y + 14;
+  const rx = ((q.nr.x - q.nl.x) / 2) * 0.78;
+  const ry = 18;
+
+  ctx.save();
+  ctx.filter = "blur(22px)";
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.filter = "blur(8px)";
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - 4, rx * 0.92, ry * 0.7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 export function DetectionDemo() {
@@ -110,7 +157,7 @@ export function DetectionDemo() {
     if (!ctx) return;
 
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const grass = makeGrassNoise();
+    const grass = makeGrassTexture();
     let raf = 0;
 
     const paint = (time: number) => {
@@ -124,46 +171,42 @@ export function DetectionDemo() {
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const t = reduce ? 6 : time / 1000;
-      const q = quadOf(w, h);
+      const q = quadOf(w, h, t);
 
-      ctx.fillStyle = "#07131d";
-      ctx.fillRect(0, 0, w, h);
-      const sky = ctx.createLinearGradient(0, 0, 0, h * 0.42);
-      sky.addColorStop(0, "rgba(18,50,74,0)");
-      sky.addColorStop(0.4, "rgba(18,50,74,0.55)");
-      sky.addColorStop(1, "rgba(7,19,29,0)");
-      ctx.fillStyle = sky;
-      ctx.fillRect(0, 0, w, h * 0.42);
-      for (let i = 0; i < 28; i++) {
-        ctx.fillStyle = `rgba(255,255,255,${0.08 + (i % 4) * 0.03})`;
-        ctx.beginPath();
-        ctx.arc((i * 97) % w, 8 + ((i * 41) % (h * 0.16)), 0.8 + (i % 3) * 0.4, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      ctx.clearRect(0, 0, w, h);
+      drawGroundShadow(ctx, q);
 
-      const stripes = 12;
-      for (let i = 0; i < stripes; i++) {
-        const u0 = i / stripes;
-        const u1 = (i + 1) / stripes;
-        trace(
-          ctx,
-          [project(u0, 0, q), project(u1, 0, q), project(u1, 1, q), project(u0, 1, q)],
-          true,
-        );
-        ctx.fillStyle = i % 2 === 0 ? "#1b8a4c" : "#157443";
-        ctx.fill();
-      }
-      trace(ctx, [q.fl, q.fr, q.nr, q.nl], true);
+      trace(ctx, [q.nl, q.nr, q.fr, q.fl], true);
       ctx.save();
       ctx.clip();
-      ctx.globalAlpha = 0.55;
+
+      // grass base + noise
       const pattern = ctx.createPattern(grass, "repeat");
       if (pattern) {
         ctx.fillStyle = pattern;
         ctx.fillRect(0, 0, w, h);
       }
+
+      // very faint mowing stripes
+      const stripes = 14;
+      for (let i = 0; i < stripes; i++) {
+        const u0 = i / stripes;
+        const u1 = (i + 0.96) / stripes;
+        trace(ctx, [project(u0, 0, q), project(u1, 0, q), project(u1, 1, q), project(u0, 1, q)], true);
+        ctx.fillStyle = i % 2 === 0 ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.025)";
+        ctx.fill();
+      }
+
+      // subtle depth haze
+      const haze = ctx.createLinearGradient(q.fl.x, q.fl.y, q.nl.x, q.nl.y);
+      haze.addColorStop(0, "rgba(0,0,0,0.08)");
+      haze.addColorStop(0.8, "rgba(0,0,0,0.02)");
+      haze.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = haze;
+      ctx.fillRect(0, 0, w, h);
       ctx.restore();
 
+      // passing loop
       const span = 2.6;
       const step = Math.floor(t / span);
       const fromI = PASSERS[step % PASSERS.length];
@@ -182,20 +225,20 @@ export function DetectionDemo() {
         u: live[fromI].u + (live[toI].u - live[fromI].u) * kick,
         v: live[fromI].v + (live[toI].v - live[fromI].v) * kick,
       };
+      const ball = project(ballUv.u, ballUv.v, q);
+      const ballD = depth(ballUv.u, ballUv.v);
 
       ctx.save();
-      trace(ctx, [q.fl, q.fr, q.nr, q.nl], true);
+      trace(ctx, [q.nl, q.nr, q.fr, q.fl], true);
       ctx.clip();
-      const sweep = (t * 0.08) % 1;
-      trace(ctx, [project(sweep, 0, q), project(Math.min(1, sweep + 0.035), 0, q), project(Math.min(1, sweep + 0.035), 1, q), project(sweep, 1, q)], true);
-      ctx.fillStyle = "rgba(125,255,198,0.16)";
-      ctx.fill();
 
-      for (const player of [...live].sort((a, b) => a.v - b.v)) {
+      // subtle heat glow under all players
+      for (const player of live) {
         const p = project(player.u, player.v, q);
-        const radius = 28;
+        const d = depth(player.u, player.v);
+        const radius = 14 + d * 16;
         const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
-        glow.addColorStop(0, "rgba(255,214,70,0.45)");
+        glow.addColorStop(0, `rgba(255,214,70,${0.18 + d * 0.22})`);
         glow.addColorStop(1, "rgba(255,214,70,0)");
         ctx.fillStyle = glow;
         ctx.beginPath();
@@ -204,14 +247,15 @@ export function DetectionDemo() {
       }
       ctx.restore();
 
-      ctx.strokeStyle = "rgba(255,255,255,0.88)";
+      // pitch lines
+      ctx.strokeStyle = "rgba(255,255,255,0.85)";
       ctx.lineWidth = Math.max(1.25, w * 0.0016);
       ctx.lineJoin = "round";
-      trace(ctx, [q.fl, q.fr, q.nr, q.nl], true);
+      trace(ctx, [q.nl, q.nr, q.fr, q.fl], true);
       ctx.stroke();
       trace(ctx, [project(0.5, 0, q), project(0.5, 1, q)]);
       ctx.stroke();
-      trace(ctx, ring(q, 0.5, 0.5, 0.09, 0.09 * ((w * 0.94) / (h * 0.9))));
+      trace(ctx, ring(q, 0.5, 0.5, 9.15 / PITCH_LENGTH, 9.15 / PITCH_WIDTH));
       ctx.stroke();
       const spot = project(0.5, 0.5, q);
       ctx.fillStyle = "rgba(255,255,255,0.9)";
@@ -228,83 +272,51 @@ export function DetectionDemo() {
       box(0.843, 1, 0.204, 0.796);
       box(0.948, 1, 0.368, 0.632);
 
+      // players
       const fromPt = project(live[fromI].u, live[fromI].v, q);
-      const ball = project(ballUv.u, ballUv.v, q);
       if (kick < 0.98) {
-        const arc = { x: (fromPt.x + ball.x) / 2, y: Math.min(fromPt.y, ball.y) - h * 0.06 };
+        const arc = { x: (fromPt.x + ball.x) / 2, y: Math.min(fromPt.y, ball.y) - h * 0.04 * ballD };
         ctx.save();
-        ctx.strokeStyle = "rgba(255,255,255,0.7)";
+        ctx.strokeStyle = "rgba(255,255,255,0.55)";
         ctx.setLineDash([5, 5]);
         ctx.lineDashOffset = reduce ? 0 : -((t * 36) % 40);
         ctx.beginPath();
-        ctx.moveTo(fromPt.x, fromPt.y - 8);
+        ctx.moveTo(fromPt.x, fromPt.y);
         ctx.quadraticCurveTo(arc.x, arc.y, ball.x, ball.y);
         ctx.stroke();
         ctx.restore();
       }
 
-      const drawn = [...live].sort((a, b) => a.v - b.v);
-      for (const player of drawn) {
+      for (const player of live) {
         const p = project(player.u, player.v, q);
-        const s = 1;
-        ctx.fillStyle = "rgba(0,0,0,0.28)";
+        const d = depth(player.u, player.v);
+        const r = (3.8 + d * 2.2) * 1.15;
+        const teamColor = TEAMS[player.team].color;
+
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
         ctx.beginPath();
-        ctx.ellipse(p.x, p.y + 2, 8 * s, 3.2 * s, 0, 0, Math.PI * 2);
+        ctx.ellipse(p.x, p.y + r * 0.35, r * 1.6, r * 0.55, 0, 0, Math.PI * 2);
         ctx.fill();
-        const shirt = player.team === 0 ? "#2F80ED" : "#f4f7f8";
-        ctx.strokeStyle = shirt;
-        ctx.lineWidth = Math.max(1.4, 1.8 * s);
+
+        ctx.fillStyle = teamColor;
         ctx.beginPath();
-        ctx.moveTo(p.x, p.y - 12 * s);
-        ctx.lineTo(p.x - 3.5 * s, p.y);
-        ctx.moveTo(p.x, p.y - 12 * s);
-        ctx.lineTo(p.x + 3.5 * s, p.y);
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = player.team === 0 ? "rgba(255,255,255,0.55)" : "rgba(11,22,32,0.45)";
+        ctx.lineWidth = 1.2;
         ctx.stroke();
-        ctx.fillStyle = shirt;
-        ctx.beginPath();
-        ctx.roundRect(p.x - 4.2 * s, p.y - 22 * s, 8.4 * s, 11 * s, 2 * s);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(p.x, p.y - 26 * s, 3.3 * s, 0, Math.PI * 2);
-        ctx.fill();
-        if (player.team === 1) {
-          ctx.strokeStyle = "#0b1620";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
-        const marker = { x: p.x, y: p.y - 16 * s, r: 16 * s + 6 };
-        ctx.beginPath();
-        ctx.arc(marker.x, marker.y, marker.r, 0, Math.PI * 2);
-        ctx.strokeStyle = player.team === 0 ? "#7eb6ff" : "#ffffff";
-        ctx.lineWidth = 1.75;
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(marker.x, marker.y, 2.2, 0, Math.PI * 2);
-        ctx.fillStyle = player.team === 0 ? "#7eb6ff" : "#ffffff";
-        ctx.fill();
-        const conf = player.conf.toFixed(2);
-        ctx.font = `700 ${Math.max(9, Math.min(11, w * 0.01))}px Inter, sans-serif`;
-        const text = `${player.label} ${conf}`;
-        const tw = ctx.measureText(text).width;
-        const lx = marker.x - tw / 2 - 4;
-        const ly = marker.y - marker.r - 16;
-        ctx.fillStyle = "rgba(7,19,29,0.88)";
-        ctx.beginPath();
-        ctx.roundRect(lx, ly, tw + 8, 13, 3);
-        ctx.fill();
-        ctx.fillStyle = player.team === 0 ? "#9ec5ff" : "#ffffff";
-        ctx.fillText(text, lx + 4, ly + 10);
       }
 
+      // ball
       const pulse = 0.5 + 0.5 * Math.sin(t * 3);
       ctx.strokeStyle = `rgba(255,212,0,${0.35 + pulse * 0.4})`;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(ball.x, ball.y, 8 + pulse * 3, 0, Math.PI * 2);
+      ctx.arc(ball.x, ball.y, (5 + pulse * 2.5) * ballD, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = "#FFD400";
       ctx.beginPath();
-      ctx.arc(ball.x, ball.y, 4.2, 0, Math.PI * 2);
+      ctx.arc(ball.x, ball.y, 3.5 * ballD, 0, Math.PI * 2);
       ctx.fill();
 
       if (!reduce) raf = requestAnimationFrame(paint);
@@ -315,23 +327,19 @@ export function DetectionDemo() {
   }, []);
 
   return (
-    <div
-      className="overflow-hidden bg-transparent"
-      style={{
-        maskImage:
-          "linear-gradient(to right, transparent, #000 6%, #000 94%, transparent), linear-gradient(to bottom, transparent, #000 8%, #000 92%, transparent)",
-        WebkitMaskImage:
-          "linear-gradient(to right, transparent, #000 6%, #000 94%, transparent), linear-gradient(to bottom, transparent, #000 8%, #000 92%, transparent)",
-        maskComposite: "intersect",
-        WebkitMaskComposite: "source-in",
-      }}
-    >
-      <canvas
-        ref={canvasRef}
-        className="block aspect-[16/10] w-full"
-        role="img"
-        aria-label="Flat horizontal pitch. Players move and pass while circle markers track them."
-      />
+    <div className="overflow-visible bg-transparent [perspective:1200px]">
+      <div
+        className="drop-shadow-[0_32px_64px_rgba(0,0,0,0.5)]"
+        style={{ transform: "rotateX(8deg)", transformOrigin: "center bottom" }}
+      >
+        <canvas
+          ref={canvasRef}
+          className="block w-full"
+          style={{ aspectRatio: `${PITCH_LENGTH} / ${PITCH_WIDTH}` }}
+          role="img"
+          aria-label="Animated football pitch with team dots, possession glow and moving ball."
+        />
+      </div>
     </div>
   );
 }
