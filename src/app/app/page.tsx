@@ -1,6 +1,6 @@
 "use client";
 
-import { Film, Lock, Sparkles, Zap } from "lucide-react";
+import { Film, Lock, Plus, Sparkles, Zap } from "lucide-react";
 import { CapabilityCard } from "@/components/shell/CapabilityCard";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MatchList } from "@/components/match/MatchList";
@@ -22,7 +22,17 @@ export default function HomePage() {
       <div className="mx-auto grid max-w-[1400px] gap-5 px-5 sm:px-10 xl:grid-cols-[1fr_380px]">
         <div className="space-y-5">
           <Card>
-            <CardHeader title="This session's matches" subtitle="Results stay in this browser tab until you close it." />
+            <CardHeader
+              title="This session's matches"
+              subtitle="Results stay in this browser tab until you close it."
+              action={
+                count ? (
+                  <LinkButton href="/app/analyze" size="sm">
+                    <Plus className="size-4" /> Analyze another
+                  </LinkButton>
+                ) : undefined
+              }
+            />
             {count ? (
               <MatchList limit={6} />
             ) : (
