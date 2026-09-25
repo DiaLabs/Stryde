@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Logo } from "@/components/brand/Logo";
 import { DetectionDemo } from "@/components/landing/DetectionDemo";
 import { FeatureGrid } from "@/components/landing/FeatureGrid";
+import heroBg from "../../bg.jpg";
 
 export default function Landing() {
   return (
@@ -30,17 +31,13 @@ export default function Landing() {
         </div>
       </header>
 
-      <section className="relative flex min-h-svh items-center">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,rgba(255,255,255,0.14),transparent_52%)]" />
+      <section className="relative flex min-h-svh items-center overflow-hidden">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-40 mix-blend-soft-light"
-          style={{
-            backgroundImage:
-              "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")",
-            backgroundSize: "180px 180px",
-          }}
+          className="pointer-events-none absolute inset-0 scale-105 bg-cover bg-center bg-no-repeat opacity-40 blur-md"
+          style={{ backgroundImage: `url(${heroBg.src})` }}
         />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,rgba(255,255,255,0.08),transparent_55%)]" />
         <div className="relative mx-auto flex w-full max-w-[90rem] flex-col items-center justify-center gap-8 px-5 pt-28 pb-16 sm:px-8 lg:flex-row lg:gap-10">
           <div className="w-full max-w-lg">
             <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-white/80">
