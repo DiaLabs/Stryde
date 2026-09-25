@@ -212,3 +212,32 @@ export async function inspectVideo(file: File): Promise<{ meta: VideoMetadata; t
     URL.revokeObjectURL(url);
   }
 }
+
+/** Lightweight thumbnail from a local video file. Returns undefined on failure. */
+export async function createVideoThumbnail(file: File, seekSeconds = 0.5): Promise<string | undefined> {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.preload = "auto";
+  video.muted = true;
+  video.playsInline = true;
+  video.src = url;
+  try {
+    await waitForEvent(video, "loadedmetadata", 10000);
+    if (!video.videoWidth || !Number.isFinite(video.duration)) return undefined;
+    await seekTo(video, Math.min(seekSeconds, video.duration * 0.25));
+    const c = document.createElement("canvas");
+    const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+    c.width = Math.round(video.videoWidth * scale);
+    c.height = Math.round(video.videoHeight * scale);
+    const ctx = c.getContext("2d");
+    if (!ctx) return undefined;
+    ctx.drawImage(video, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.82);
+  } catch {
+    return undefined;
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(url);
+  }
+}
