@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Film, Map, Upload, Video } from "lucide-react";
+import { Film, Lock, Sparkles, Zap } from "lucide-react";
 import { CapabilityCard } from "@/components/shell/CapabilityCard";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MatchList } from "@/components/match/MatchList";
@@ -16,18 +16,11 @@ export default function HomePage() {
   });
 
   return (
-    <div className="pb-12">
-      <PageHeader
-        title="Welcome to Stryde"
-        subtitle="Turn a short soccer clip into annotated playback and team insights — analyzed privately in your browser."
-        actions={
-          <LinkButton href="/app/analyze" size="lg">
-            <Upload className="size-4" /> Upload match
-          </LinkButton>
-        }
-      />
-      <div className="mx-auto grid max-w-[1520px] gap-6 px-5 sm:px-10 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="space-y-6">
+    <div className="pb-10">
+      <PageHeader title="Welcome to Stryde" subtitle="Turn a short soccer clip into annotated playback and team insights — analyzed privately in your browser." />
+
+      <div className="mx-auto grid max-w-[1400px] gap-5 px-5 sm:px-10 xl:grid-cols-[1fr_380px]">
+        <div className="space-y-5">
           <Card>
             <CardHeader title="This session's matches" subtitle="Results stay in this browser tab until you close it." />
             {count ? (
@@ -37,38 +30,36 @@ export default function HomePage() {
                 icon={<Film className="size-5" />}
                 title="No matches analyzed yet"
                 action={
-                  <LinkButton href="/app/analyze">
-                    <Upload className="size-4" /> Upload match
+                  <LinkButton href="/app/analyze" size="lg">
+                    Upload match
                   </LinkButton>
                 }
               >
-                Choose a 30–60 second soccer clip (720p, 25 fps recommended). Stryde detects and tracks players, groups them into teams and builds team
-                analytics.
+                Choose a 30–60 second soccer clip. Stryde detects and tracks players, groups them into teams, and builds analytics — all in your browser.
               </EmptyState>
             )}
           </Card>
 
-          <Card>
-            <CardHeader title="How it works" />
-            <ol className="grid gap-6 px-6 pb-6 sm:grid-cols-3">
-              {[
-                { icon: Video, t: "Choose a clip", d: "Pick a short local video, name the teams, and start analysis." },
-                { icon: Activity, t: "Analyze in browser", d: "Players and the ball are detected, tracked, and grouped by jersey color." },
-                { icon: Map, t: "Explore results", d: "Review annotated playback, team stats, heatmaps, and events." },
-              ].map((s) => (
-                <li key={s.t}>
-                  <div className="mb-3 grid size-11 place-items-center rounded-xl bg-brand-soft text-[#11704a]">
-                    <s.icon className="size-5" aria-hidden />
-                  </div>
-                  <p className="font-semibold text-ink">{s.t}</p>
-                  <p className="mt-1.5 text-[15px] leading-relaxed text-ink-2">{s.d}</p>
-                </li>
-              ))}
-            </ol>
-          </Card>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[
+              { icon: Lock, t: "Private", d: "Your clip never leaves this browser." },
+              { icon: Zap, t: "GPU or CPU", d: "WebGPU when available, WebAssembly fallback." },
+              { icon: Sparkles, t: "Steady footage", d: "Static or slow pans work best." },
+            ].map((s) => (
+              <div key={s.t} className="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3">
+                <div className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-soft text-[#11704a]">
+                  <s.icon className="size-4" aria-hidden />
+                </div>
+                <div>
+                  <p className="text-[15px] font-semibold">{s.t}</p>
+                  <p className="text-sm leading-snug text-ink-2">{s.d}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-5">
           {latest?.result && (
             <Card>
               <CardHeader

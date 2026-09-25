@@ -220,9 +220,9 @@ export default function AnalyzePage() {
               )}
             >
               {selectedFile ? (
-                <div className="w-full max-w-sm">
+                <div className="flex w-full max-w-sm flex-col items-center">
                   {preview ? (
-                    <div className="relative h-24 w-40 overflow-hidden rounded-xl bg-navy-900 shadow-sm">
+                    <div className="relative h-28 w-44 overflow-hidden rounded-xl bg-navy-900 shadow-sm">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={preview} alt="Video preview" className="size-full object-cover" />
                     </div>
