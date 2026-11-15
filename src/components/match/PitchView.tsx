@@ -67,18 +67,28 @@ const mixRgb = (a: [number, number, number], b: [number, number, number], k: num
   Math.round(a[2] + (b[2] - a[2]) * k),
 ];
 
-/**
- * A single team's heat ramp, laid over the green pitch: a faint white-tinted haze of the team
- * colour where the team rarely was, the full team colour where it often was, deepening towards
- * navy at the very hottest cells. Opacity rises with the value so cold areas let the grass show.
- */
-export function teamHeatColor(v: number, team: string): { r: number; g: number; b: number; a: number } {
+// Thermal scale as in the reference heatmap: blue (little time) through cyan, green and
+// yellow to red (most time). One team is shown at a time and labelled, so the scale never has
+// to carry team identity (white or pale kits made the old team-colour ramp invisible).
+const THERMAL: [number, [number, number, number]][] = [
+  [0, [37, 99, 235]],
+  [0.3, [6, 182, 212]],
+  [0.5, [34, 197, 94]],
+  [0.7, [250, 204, 21]],
+  [0.85, [249, 115, 22]],
+  [1, [220, 38, 38]],
+];
+
+/** Heat colour for a normalised value; `team` is kept for API compatibility. */
+export function teamHeatColor(v: number, team?: string): { r: number; g: number; b: number; a: number } {
+  void team;
   const t = Math.max(0, Math.min(1, v));
-  const base = hexToRgb(team);
-  const pale = mixRgb(base, hexToRgb(WHITE), 0.65);
-  const deep = mixRgb(base, hexToRgb(NAVY), 0.3);
-  const [r, g, b] = t < 0.7 ? mixRgb(pale, base, t / 0.7) : mixRgb(base, deep, (t - 0.7) / 0.3);
-  return { r, g, b, a: Math.round((0.12 + t * 0.8) * 255) };
+  let i = 1;
+  while (i < THERMAL.length - 1 && t > THERMAL[i][0]) i++;
+  const [a0, c0] = THERMAL[i - 1];
+  const [a1, c1] = THERMAL[i];
+  const [r, g, b] = mixRgb(c0, c1, (t - a0) / Math.max(1e-6, a1 - a0));
+  return { r, g, b, a: Math.round(Math.min(0.82, 0.08 + t * 0.95) * 255) };
 }
 
 /** CSS gradient that matches teamHeatColor, for the legend next to the pitch. */
