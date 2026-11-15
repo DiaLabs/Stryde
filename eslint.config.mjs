@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // generated at dev/build time (ONNX Runtime copies and the bundled worker)
+    "public/ort/**",
+    "public/workers/**",
   ]),
 ]);
 

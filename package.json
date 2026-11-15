@@ -1,41 +1,37 @@
 {
   "name": "stryde",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "assets": "node scripts/download-assets.mjs && node scripts/build-assets.mjs",
-    "predev": "node scripts/download-assets.mjs && node scripts/build-assets.mjs",
-    "dev": "node scripts/download-assets.mjs && node scripts/build-assets.mjs --watch & next dev",
-    "prebuild": "node scripts/download-assets.mjs && node scripts/build-assets.mjs",
-    "build": "next build",
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm run assets && next build",
     "start": "next start",
-    "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "lint": "eslint .",
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "clsx": "^2.1.1",
-    "lucide-react": "^1.48.0",
-    "next": "16.3.6",
-    "onnxruntime-web": "^1.30.0",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "zustand": "^5.0.15"
+    "lucide-react": "^1.73.0",
+    "next": "16.4.6",
+    "onnxruntime-web": "^1.31.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/node": "^24",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "esbuild": "^0.28.2",
-    "eslint": "^9",
-    "eslint-config-next": "16.3.6",
-    "playwright-core": "^1.63.0",
-    "tailwindcss": "^4",
-    "typescript": "^5"
-  },
-  "allowScripts": {
-    "esbuild@0.28.2": true,
-    "protobufjs@7.6.6": true,
-    "unrs-resolver@1.12.2": true
+    "eslint": "^10.15.0",
+    "eslint-config-next": "16.4.6",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^6.0.3"
   }
 }

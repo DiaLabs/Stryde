@@ -6,10 +6,14 @@ The app is designed for users who want a simple way to study football clips with
 
 ## Quick start
 
+Requires Node 22.12+ and [pnpm](https://pnpm.io) (the version is pinned in `package.json`; `corepack enable` picks it up).
+
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
+
+`pnpm dev` downloads the detection models and sample clip on first run, bundles the analysis worker in watch mode and starts Next.js.
 
 Then open:
 
@@ -66,18 +70,16 @@ The app keeps the workflow simple:
 - [docs/prd.md](docs/prd.md) — product requirements document
 - [docs/specs.md](docs/specs.md) — technical specification
 - [docs/design.md](docs/design.md) — design and UX direction
-- [docs/project-analysis.md](docs/project-analysis.md) — project analysis
-- [docs/project-features-and-flow.md](docs/project-features-and-flow.md) — feature and flow overview
 
 ## Useful commands
 
 ```bash
-npm install
-npm run dev
-npm run build
-npm run start
-npm run lint
-npm run typecheck
+pnpm install
+pnpm dev         # assets + worker watch + next dev
+pnpm build       # assets + production build
+pnpm start
+pnpm lint
+pnpm typecheck   # generates route types, then tsc
 ```
 
 ## Deployment

@@ -17,9 +17,12 @@ for (const f of [
   "ort-wasm-simd-threaded.asyncify.wasm",
 ]) {
   const srcPath = join(ortDist, f);
-  if (existsSync(srcPath)) {
-    copyFileSync(srcPath, join(ortOut, f));
+  if (!existsSync(srcPath)) {
+    // fail loudly: a missing runtime file otherwise only shows up as a broken analysis in the browser
+    console.error(`build-assets: missing ${f} in onnxruntime-web/dist — check the installed onnxruntime-web version.`);
+    process.exit(1);
   }
+  copyFileSync(srcPath, join(ortOut, f));
 }
 
 const options = {
