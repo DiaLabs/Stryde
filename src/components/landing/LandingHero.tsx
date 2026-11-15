@@ -117,11 +117,7 @@ export function LandingHero() {
       <div className="mx-auto flex min-h-[100svh] max-w-[1120px] flex-col px-5 pt-28 pb-8 sm:px-8 lg:pt-32">
         <div className="grid flex-1 items-center gap-12 lg:grid-cols-[minmax(0,1fr)_440px]">
           <div className="max-w-[600px]">
-            <p className="hero-rise inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1 text-xs font-medium text-white/80 backdrop-blur">
-              <span className="size-1.5 rounded-full bg-brand shadow-[0_0_0_3px_rgba(32,199,133,0.25)]" aria-hidden />
-              Football video analysis, in your browser
-            </p>
-            <h1 id="hero-title" className="hero-rise mt-5 text-[2.6rem] leading-[1.04] font-extrabold tracking-[-0.025em] [animation-delay:60ms] sm:text-6xl lg:text-[4rem]">
+            <h1 id="hero-title" className="hero-rise text-[2.6rem] leading-[1.04] font-extrabold tracking-[-0.025em] [animation-delay:60ms] sm:text-6xl lg:text-[4rem]">
               Turn match footage into game-changing insights
             </h1>
             <p className="hero-rise mt-5 max-w-[520px] text-base leading-relaxed text-white/75 [animation-delay:120ms] sm:text-lg">

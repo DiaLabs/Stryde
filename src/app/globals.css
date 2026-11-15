@@ -65,26 +65,6 @@ body {
   background: color-mix(in srgb, var(--color-brand) 30%, transparent);
 }
 
-/* Minimal themed scrollbar (no hover restyle: it forced a style recalc on every hover) */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(91, 104, 116, 0.35) transparent;
-}
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(91, 104, 116, 0.35);
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-::-webkit-scrollbar-track,
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
 /* Estimated values: dashed underline (solid = measured, dashed = estimated). */
 .estimate {
   text-decoration: underline dashed currentColor;
