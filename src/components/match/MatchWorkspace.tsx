@@ -1,23 +1,23 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowLeft, Upload } from "lucide-react";
+import { ArrowLeft, ArrowRight, RotateCcw, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo, useRef, useState } from "react";
-import { PageHeader } from "@/components/shell/PageHeader";
-import { Badge, Card, CardHeader, LinkButton } from "@/components/ui/primitives";
+import { ViewTransition, useCallback, useEffect, useId, useMemo, useOptimistic, useRef, useState, useTransition, type ReactNode } from "react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Badge, Button, Card, CardHeader, LinkButton, Magnet, TeamChip } from "@/components/ui/primitives";
 import { buildTeamFrames } from "@/lib/analysis/analytics";
-import { formatBytes, formatDuration } from "@/lib/format";
+import { formatBytes, formatDuration, formatMetric } from "@/lib/format";
 import { buildRenderIndex } from "@/lib/render";
+import { isPartial } from "@/lib/result";
 import { useStryde, type MatchEntry } from "@/lib/store";
-import type { AnalysisResult, OverlayOptions } from "@/lib/types";
+import type { AnalysisResult, OverlayOptions, TeamAnalytics } from "@/lib/types";
 import { EventsList } from "./EventsList";
 import { PitchPanel } from "./PitchPanel";
 import { PlaybackProvider } from "./playback";
-import { PossessionDonut } from "./PossessionDonut";
 import { PossessionTimeline } from "./PossessionTimeline";
-import { isPartial, QualityPanel } from "./QualityPanel";
+import { QualityPanel } from "./QualityPanel";
 import { SummaryView } from "./SummaryView";
 import { TeamSettingsPanel } from "./TeamSettingsPanel";
 import { TeamStats } from "./TeamStats";
@@ -29,29 +29,73 @@ const TABS = [
   { id: "team", label: "Team analysis" },
   { id: "events", label: "Events" },
   { id: "summary", label: "Summary" },
-  { id: "teams", label: "Teams & data quality" },
+  { id: "teams", label: "Teams & quality" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
+
+const isTab = (v: string | null): v is TabId => TABS.some((t) => t.id === v);
 
 export function MatchWorkspace({ entry, result }: { entry: MatchEntry; result: AnalysisResult }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const tabParam = params.get("tab") as TabId | null;
-  const tab: TabId = TABS.some((t) => t.id === tabParam) ? tabParam! : "overview";
+  const tabParam = params.get("tab");
+  // the URL is the source of truth (the top bar links to ?tab=team)
+  const tab: TabId = isTab(tabParam) ? tabParam : "overview";
+  // the tab strip answers a key press at once; the panel swaps with the navigation so
+  // <ViewTransition> can crossfade it
+  const [shownTab, setShownTab] = useOptimistic(tab);
+  const [, startTransition] = useTransition();
   const applyOverrides = useStryde((s) => s.applyOverrides);
   const renameTeams = useStryde((s) => s.renameTeams);
+  const retry = useStryde((s) => s.retryAnalysis);
+  const removeMatch = useStryde((s) => s.removeMatch);
   const [overlays, setOverlays] = useState<OverlayOptions>(DEFAULT_OVERLAYS);
+  const [confirm, setConfirm] = useState<"rerun" | "discard" | null>(null);
 
   const index = useMemo(() => buildRenderIndex(result), [result]);
   const teamFrames = useMemo(() => buildTeamFrames(result.tracks, result.frames, 1 / result.coverage.sampleFps), [result]);
   const colorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
+  const uid = useId();
+  const tabId = (id: TabId) => `${uid}-tab-${id}`;
+  const panelId = `${uid}-panel`;
+
+  // Discarding navigates away first and removes the match once this page has gone, so the
+  // "no longer available" state never flashes.
+  const discardOnLeave = useRef(false);
+  useEffect(() => {
+    const flag = discardOnLeave;
+    const id = entry.id;
+    return () => {
+      if (flag.current) removeMatch(id);
+    };
+  }, [entry.id, removeMatch]);
 
   const setTab = (id: TabId) => {
     const sp = new URLSearchParams(params.toString());
     if (id === "overview") sp.delete("tab");
     else sp.set("tab", id);
-    router.replace(`${pathname}${sp.toString() ? `?${sp}` : ""}`, { scroll: false });
+    const qs = sp.toString();
+    startTransition(() => {
+      setShownTab(id);
+      router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+    });
+  };
+
+  // WAI-ARIA tabs: one tab stop, arrows move and select, Home and End jump to the ends
+  const onTabKey = (e: React.KeyboardEvent) => {
+    const i = TABS.findIndex((t) => t.id === shownTab);
+    let n: number;
+    if (e.key === "ArrowRight") n = (i + 1) % TABS.length;
+    else if (e.key === "ArrowLeft") n = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") n = 0;
+    else if (e.key === "End") n = TABS.length - 1;
+    else return;
+    e.preventDefault();
+    const next = TABS[n].id;
+    tabRefs.current[next]?.focus();
+    setTab(next);
   };
 
   const onColors = useCallback(
@@ -63,189 +107,342 @@ export function MatchWorkspace({ entry, result }: { entry: MatchEntry; result: A
   );
 
   const partial = isPartial(result);
+  const { teamAName, teamBName, teamAColor, teamBColor } = result.teams;
+  const created = new Date(entry.createdAt);
 
-  const right = (() => {
+  const pitchCard = (
+    <Panel title="Tactical pitch" subtitle="Where each team is, in step with the video.">
+      <PitchPanel result={result} teamFrames={teamFrames} compact />
+    </Panel>
+  );
+
+  // the column beside the video: match stats, or what the tab is about when it reads with the video
+  const side: ReactNode =
+    tab === "events" ? (
+      <EventsList result={result} compact />
+    ) : tab === "team" ? (
+      pitchCard
+    ) : (
+      <MatchStats result={result} onMore={() => setTab("team")} />
+    );
+
+  const panel: ReactNode = (() => {
     switch (tab) {
       case "overview":
         return (
-          <Card>
-            <CardHeader title="Match stats" subtitle="Team-level estimates, side by side" />
-            <div className="pb-2">
-              <TeamStats result={result} compact />
-            </div>
-          </Card>
-        );
-      case "team":
-        return (
-          <Card>
-            <CardHeader title="Tactical pitch" subtitle="Synchronized with the video" />
-            <div className="px-5 pb-5">
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Panel
+              title="Tactical pitch"
+              subtitle="Where each team is, in step with the video."
+              action={
+                <Button variant="ghost" size="sm" onClick={() => setTab("team")}>
+                  Team analysis <ArrowRight className="size-3.5" aria-hidden />
+                </Button>
+              }
+            >
               <PitchPanel result={result} teamFrames={teamFrames} compact />
-            </div>
-          </Card>
-        );
-      case "events":
-        return (
-          <Card>
-            <CardHeader title="Estimated events" subtitle="Click an event to replay it" />
-            <div className="px-5 pb-5">
-              <EventsList result={result} />
-            </div>
-          </Card>
-        );
-      case "summary":
-        return (
-          <Card>
-            <CardHeader title="Possession" subtitle="Estimated share of known time" />
-            <div className="px-5 pb-5">
-              <PossessionDonut result={result} />
-            </div>
-          </Card>
-        );
-      case "teams":
-        return (
-          <Card>
-            <CardHeader title="Data quality & coverage" />
-            <div className="px-5 pb-5">
-              <QualityPanel result={result} />
-            </div>
-          </Card>
-        );
-    }
-  })();
-
-  const lower = (() => {
-    switch (tab) {
-      case "overview":
-        return (
-          <div className="grid gap-5 2xl:grid-cols-2">
-            <Card>
-              <CardHeader title="Possession timeline" subtitle="Estimated team in possession over time · click to seek" />
-              <div className="px-5 pb-5">
-                <PossessionTimeline result={result} />
-              </div>
-            </Card>
-            <Card>
-              <CardHeader title="Tactical pitch" subtitle="Team occupancy synchronized with playback" action={<LinkToTab onClick={() => setTab("team")} label="Open team analysis" />} />
-              <div className="px-5 pb-5">
-                <PitchPanel result={result} teamFrames={teamFrames} compact />
-              </div>
-            </Card>
+            </Panel>
+            <EventsList result={result} compact />
+            <Panel
+              title="Possession over time"
+              subtitle="Which team had the ball, estimated. Select a point on the strip to play from there."
+              className="lg:col-span-2"
+            >
+              <PossessionTimeline result={result} />
+            </Panel>
           </div>
         );
       case "team":
         return (
-          <div className="grid gap-5 2xl:grid-cols-2">
-            <Card>
-              <CardHeader title="Team comparison" subtitle="All team metrics with definitions and quality" />
-              <div className="pb-2">
-                <TeamStats result={result} />
-              </div>
-            </Card>
-            <div className="space-y-5">
-              <Card>
-                <CardHeader title="Presence by third" subtitle="Movement zones across the pitch length" />
-                <div className="px-5 pb-5">
-                  <ThirdsComparison result={result} />
-                </div>
-              </Card>
-              <Card>
-                <CardHeader title="Possession timeline" />
-                <div className="px-5 pb-5">
-                  <PossessionTimeline result={result} height={100} />
-                </div>
-              </Card>
-              <Card>
-                <CardHeader title="Full-clip heatmaps" subtitle="Compare teams across the whole analyzed clip" />
-                <div className="px-5 pb-5">
-                  <PitchPanel result={result} teamFrames={teamFrames} defaultLayer="movement" defaultScope="full" />
-                </div>
-              </Card>
-            </div>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Panel title="Whole-clip heatmaps" subtitle="Where each team spent the analyzed clip.">
+              <PitchPanel result={result} teamFrames={teamFrames} defaultLayer="movement" defaultScope="full" />
+            </Panel>
+            <Panel title="Team comparison" subtitle="Every team figure with how it was measured and how sure it is.">
+              <TeamStats result={result} />
+            </Panel>
+            <Panel title="Presence by third" subtitle="How much each team was in the left, middle and right third of the camera view.">
+              <ThirdsComparison result={result} />
+            </Panel>
+            <Panel title="Possession over time" subtitle="Which team had the ball, estimated.">
+              <PossessionTimeline result={result} height={100} />
+            </Panel>
           </div>
         );
       case "events":
         return (
-          <Card>
-            <CardHeader title="Possession & events timeline" subtitle="Yellow lines mark estimated shots, green lines possible goals" />
-            <div className="px-5 pb-5">
+          <div className="grid gap-5">
+            <EventsList result={result} />
+            <Panel
+              title="Possession and events"
+              subtitle="Events on the strip are estimates: yellow dots are shots, navy dots are possible goals. Select a point to play from there."
+            >
               <PossessionTimeline result={result} />
-            </div>
-          </Card>
+            </Panel>
+          </div>
         );
       case "summary":
         return <SummaryView result={result} teamFrames={teamFrames} />;
       case "teams":
         return (
-          <Card>
-            <CardHeader title="Team names & colors" subtitle="Correct the jersey colors used for team assignment" />
-            <div className="px-5 pb-5">
-              <TeamSettingsPanel key={`${result.teams.teamAName}|${result.teams.teamBName}`} entry={entry} result={result} onColors={onColors} onNames={(a, b) => renameTeams(entry.id, a, b)} />
-            </div>
-          </Card>
+          <div className="grid items-start gap-5 lg:grid-cols-2">
+            <TeamSettingsPanel
+              key={`${teamAName}|${teamBName}`}
+              entry={entry}
+              result={result}
+              onColors={onColors}
+              onNames={(a, b) => renameTeams(entry.id, a, b)}
+            />
+            <QualityPanel result={result} />
+          </div>
         );
     }
   })();
 
   return (
     <PlaybackProvider>
-      <PageHeader
-        back={
-          <Link href="/app/matches" className="mb-2 inline-flex items-center gap-1 text-sm text-ink-2 hover:text-ink">
-            <ArrowLeft className="size-4" /> Matches
-          </Link>
-        }
-        title={
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            {result.teams.teamAName} vs {result.teams.teamBName}
-            {partial ? <Badge tone="warn">Completed · partial analysis</Badge> : <Badge tone="ok">Completed</Badge>}
-          </span>
-        }
-        subtitle={`${entry.meta.fileName} · ${formatDuration(entry.meta.durationSeconds)} · ${entry.meta.width}×${entry.meta.height} · ${formatBytes(
-          entry.meta.fileSizeBytes
-        )} · ${result.processing.mode === "detailed" ? "More detailed" : "Faster"} analysis`}
-        actions={
-          <LinkButton href="/app/analyze" variant="secondary">
-            <Upload className="size-4" /> Analyze another
-          </LinkButton>
-        }
-      />
-      <div className="px-5 sm:px-10">
-        <div role="tablist" aria-label="Match views" className="-mx-1 mb-6 flex gap-1 overflow-x-auto border-b border-line">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={tab === t.id}
-              onClick={() => setTab(t.id)}
-              className={clsx(
-                "shrink-0 border-b-2 px-4 pt-1.5 pb-3 text-[15px] font-medium transition-colors",
-                tab === t.id ? "border-brand text-ink" : "border-transparent text-ink-2 hover:text-ink"
-              )}
+      <div className="mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-8">
+        <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4 pt-6 pb-5 lg:pt-8">
+          <div className="flex min-w-0 items-start gap-3">
+            <Link
+              href="/app/matches"
+              aria-label="Back to all matches"
+              title="All matches"
+              className="mt-px grid size-9 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ink/5 hover:text-ink"
             >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="grid gap-6 pb-12 xl:grid-cols-[minmax(0,1fr)_440px]">
-          <div className="min-w-0 space-y-5">
-            <VideoPlayer src={entry.url} result={result} index={index} overlays={overlays} onOverlaysChange={setOverlays} />
-            <div role="tabpanel" aria-label={TABS.find((t) => t.id === tab)?.label}>
-              {lower}
+              <ArrowLeft className="size-5" aria-hidden />
+            </Link>
+            <div className="min-w-0">
+              <h1 className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[22px] leading-tight font-bold tracking-tight text-ink sm:text-2xl">
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Magnet color={teamAColor} size={12} />
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{teamAName}</span>
+                </span>
+                <span className="text-base font-medium text-ink-2">vs</span>
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Magnet color={teamBColor} size={12} />
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{teamBName}</span>
+                </span>
+              </h1>
+              <ul className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-2">
+                <li>
+                  <time dateTime={created.toISOString()}>
+                    {created.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })},{" "}
+                    {created.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                  </time>
+                </li>
+                <Sep />
+                <li>
+                  <span className="tabular">{formatDuration(entry.meta.durationSeconds)}</span> of footage
+                </li>
+                <Sep className="hidden sm:block" />
+                <li className="hidden max-w-[18rem] truncate sm:block" title={`${entry.meta.fileName}, ${formatBytes(entry.meta.fileSizeBytes)}`}>
+                  {entry.meta.fileName}
+                </li>
+                <Sep />
+                <li>
+                  {partial ? (
+                    <Badge tone="warn" className="py-[3px]">
+                      Partial analysis
+                    </Badge>
+                  ) : (
+                    <Badge tone="ok" className="py-[3px]">
+                      Completed
+                    </Badge>
+                  )}
+                </li>
+              </ul>
             </div>
           </div>
-          <div className="min-w-0 space-y-5 xl:sticky xl:top-4 xl:self-start">{right}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <LinkButton href="/app/analyze" variant="secondary" size="sm">
+              <Upload className="size-4" aria-hidden /> Analyze another
+            </LinkButton>
+            <Button variant="secondary" size="sm" onClick={() => setConfirm("rerun")}>
+              <RotateCcw className="size-4" aria-hidden /> Re-run
+            </Button>
+            <Button variant="danger" size="sm" onClick={() => setConfirm("discard")}>
+              <Trash2 className="size-4" aria-hidden /> Discard
+            </Button>
+          </div>
+        </header>
+
+        <div role="tablist" aria-label="Match views" onKeyDown={onTabKey} className="-mx-1 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-line px-1 [scrollbar-width:none] sm:gap-4 [&::-webkit-scrollbar]:hidden">
+          {TABS.map((t) => {
+            const selected = shownTab === t.id;
+            return (
+              <button
+                key={t.id}
+                ref={(el) => {
+                  tabRefs.current[t.id] = el;
+                }}
+                id={tabId(t.id)}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls={panelId}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => setTab(t.id)}
+                className={clsx(
+                  "-mb-px shrink-0 rounded-t-md border-b-2 px-2 pt-2 pb-2.5 text-sm whitespace-nowrap transition-colors focus-visible:-outline-offset-2",
+                  selected ? "border-brand font-semibold text-ink" : "border-transparent font-medium text-ink-2 hover:border-line hover:text-ink"
+                )}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div role="tabpanel" id={panelId} aria-labelledby={tabId(tab)} className="pt-5 pb-16">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+            <div className="min-w-0 self-start">
+              <VideoPlayer
+                src={entry.url}
+                result={result}
+                index={index}
+                overlays={overlays}
+                onOverlaysChange={setOverlays}
+                transitionName={`match-video-${entry.id}`}
+              />
+            </div>
+            {/* beside the video the events list takes the video's height and scrolls */}
+            <div className={clsx("flex min-w-0 flex-col [&>*]:flex-1", tab === "events" && "xl:h-0 xl:min-h-full [&>*]:min-h-0")}>{side}</div>
+          </div>
+          <ViewTransition key={tab} name="match-tab-panel" share="auto" default="none">
+            <div className="mt-5">{panel}</div>
+          </ViewTransition>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirm === "rerun"}
+        title="Re-run this analysis?"
+        confirmLabel="Re-run analysis"
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          setConfirm(null);
+          retry(entry.id);
+        }}
+      >
+        The current results are cleared and the clip is analyzed again on this device. Team names and colour corrections are kept.
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={confirm === "discard"}
+        title="Discard this analysis?"
+        confirmLabel="Discard analysis"
+        tone="danger"
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          setConfirm(null);
+          discardOnLeave.current = true;
+          router.replace("/app/matches");
+        }}
+      >
+        The results and the video reference are removed from this tab. Your original file is not touched.
+      </ConfirmDialog>
     </PlaybackProvider>
   );
 }
 
-function LinkToTab({ onClick, label }: { onClick: () => void; label: string }) {
+/** A white panel with a header, as on the reference: 20 px padding, 15 px semibold title. */
+function Panel({
+  title,
+  subtitle,
+  action,
+  className,
+  children,
+}: {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  action?: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <button onClick={onClick} className="shrink-0 text-sm font-semibold text-[#11704a] hover:underline">
-      {label}
-    </button>
+    <Card className={clsx("min-w-0", className)}>
+      <CardHeader title={title} subtitle={subtitle} action={action} />
+      <div className="px-5 pb-5">{children}</div>
+    </Card>
+  );
+}
+
+function Sep({ className }: { className?: string }) {
+  return <li aria-hidden className={clsx("size-[3px] rounded-full bg-ink-2/50", className)} />;
+}
+
+const STAT_ROWS: { key: Exclude<keyof TeamAnalytics, "teamId" | "thirds" | "occupancyGrid" | "possessionPercent">; label: string; digits?: number }[] = [
+  { key: "shotCount", label: "Shots" },
+  { key: "goalCount", label: "Possible goals" },
+  { key: "distanceMeters", label: "Distance covered", digits: 0 },
+  { key: "averageSpeedMetersPerSecond", label: "Average speed", digits: 1 },
+  { key: "averageVisiblePlayers", label: "Players visible", digits: 1 },
+];
+
+/**
+ * Reference "Match Stats": Team A value | label | Team B value, with possession on top as a
+ * split bar in the team colours. Estimated rows have a dashed-underlined label; an estimated
+ * possession bar is hatched.
+ */
+function MatchStats({ result, onMore }: { result: AnalysisResult; onMore: () => void }) {
+  const [a, b] = result.analytics;
+  const { teamAName, teamBName, teamAColor, teamBColor } = result.teams;
+  const pa = a.possessionPercent;
+  const pb = b.possessionPercent;
+  const possEstimated = pa.quality !== "high";
+  const hatch = (c: string) => (possEstimated ? `repeating-linear-gradient(135deg, ${c} 0 5px, color-mix(in srgb, ${c} 60%, transparent) 5px 8px)` : c);
+  const known = pa.value !== null && pb.value !== null;
+  const shareA = known ? pa.value! / Math.max(1e-9, pa.value! + pb.value!) : 0;
+  return (
+    <Card className="flex min-w-0 flex-col">
+      <CardHeader title="Match stats" />
+      <div className="flex flex-1 flex-col px-5 pb-5">
+        <div className="flex items-center justify-between gap-3 text-[13px] font-semibold text-ink">
+          <TeamChip color={teamAColor} name={teamAName} />
+          <TeamChip color={teamBColor} name={teamBName} className="flex-row-reverse text-right" />
+        </div>
+
+        <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-baseline gap-3">
+          <span className="font-hud text-[28px] leading-none font-bold text-ink">{pa.value === null ? "–" : `${pa.value.toFixed(0)}%`}</span>
+          <span className={clsx("text-center text-[13px] font-medium text-ink-2", possEstimated && "estimate")}>Possession</span>
+          <span className="font-hud text-right text-[28px] leading-none font-bold text-ink">{pb.value === null ? "–" : `${pb.value.toFixed(0)}%`}</span>
+        </div>
+        <div aria-hidden className="mt-2.5 flex h-2 gap-0.5 overflow-hidden rounded-full bg-line-soft">
+          {known && (
+            <>
+              <span className="team-fill h-full rounded-l-full" style={{ width: `${shareA * 100}%`, background: hatch(teamAColor) }} />
+              <span className="team-fill h-full flex-1 rounded-r-full" style={{ background: hatch(teamBColor) }} />
+            </>
+          )}
+        </div>
+
+        <dl className="mt-4">
+          {STAT_ROWS.map((r) => {
+            const va = a[r.key];
+            const vb = b[r.key];
+            const unit = va.value !== null ? va.unit : vb.unit;
+            const estimated = va.quality !== "high" || vb.quality !== "high";
+            return (
+              <div key={r.key} className="grid grid-cols-[1fr_auto_1fr] items-baseline gap-3 border-t border-line-soft py-2.5">
+                {/* dt first for a valid list; the grid puts it in the middle */}
+                <dt className={clsx("order-2 text-center text-[13px] text-ink-2", estimated && "estimate")}>{r.label}</dt>
+                <dd className="font-hud order-1 text-[17px] leading-none font-semibold text-ink">
+                  <span className="sr-only">{teamAName}: </span>
+                  {formatMetric(va.value, unit, r.digits)}
+                </dd>
+                <dd className="font-hud order-3 text-right text-[17px] leading-none font-semibold text-ink">
+                  <span className="sr-only">{teamBName}: </span>
+                  {formatMetric(vb.value, unit, r.digits)}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+
+        <Button variant="secondary" size="sm" onClick={onMore} className="mt-auto w-full">
+          View team analysis
+        </Button>
+      </div>
+    </Card>
   );
 }
