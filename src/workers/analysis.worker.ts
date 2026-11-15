@@ -138,6 +138,8 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
 
   inputCanvas = new OffscreenCanvas(s.inputSize, s.inputSize);
   inputCtx = inputCanvas.getContext("2d", { willReadFrequently: true });
+  // the default "low" smoothing aliases on large downscales (4K → 960) and can erase the ball
+  if (inputCtx) inputCtx.imageSmoothingQuality = "high";
   tracker.reset();
   prevThumb = null;
   cropState = null;
@@ -156,6 +158,7 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   if (!frameCanvas || frameCanvas.width !== fw || frameCanvas.height !== fh) {
     frameCanvas = new OffscreenCanvas(fw, fh);
     frameCtx = frameCanvas.getContext("2d", { willReadFrequently: true });
+    if (frameCtx) frameCtx.imageSmoothingQuality = "high";
   }
   frameCtx!.drawImage(bitmap, 0, 0, fw, fh);
   const frameData = frameCtx!.getImageData(0, 0, fw, fh);
