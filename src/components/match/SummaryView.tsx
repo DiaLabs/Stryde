@@ -1,11 +1,14 @@
 "use client";
 
-import { Card, CardHeader, Notice, QualityBadge, TeamChip } from "@/components/ui/primitives";
+import { Play } from "lucide-react";
+import { Card, CardHeader, Magnet, Notice, QualityBadge } from "@/components/ui/primitives";
 import { zoneShares, type TeamFrame } from "@/lib/analysis/analytics";
 import { formatClock, formatMetric } from "@/lib/format";
 import type { AnalysisResult } from "@/lib/types";
-import { usePlayback } from "./playback";
+import { PitchPanel } from "./PitchPanel";
+import { usePlaybackControls } from "./playback";
 import { isPartial } from "./QualityPanel";
+import { TeamStats } from "./TeamStats";
 
 /** Descriptive, evidence-based takeaways. Only statements backed by available metrics are produced. */
 function takeaways(result: AnalysisResult, teamFrames: TeamFrame[]): { text: string; q: "medium" | "low" }[] {
@@ -19,7 +22,7 @@ function takeaways(result: AnalysisResult, teamFrames: TeamFrame[]): { text: str
     out.push({
       text:
         diff < 6
-          ? `Possession was roughly balanced in the analyzed footage (${pa.toFixed(0)}% / ${(100 - pa).toFixed(0)}%, estimated).`
+          ? `Possession was roughly balanced in the analyzed footage (${pa.toFixed(0)}% to ${(100 - pa).toFixed(0)}%, estimated).`
           : `${leader} had more of the estimated possession (${Math.max(pa, 100 - pa).toFixed(0)}%).`,
       q: a.possessionPercent.quality === "medium" ? "medium" : "low",
     });
@@ -51,7 +54,7 @@ function takeaways(result: AnalysisResult, teamFrames: TeamFrame[]): { text: str
   if (a.averageSpeedMetersPerSecond.value !== null && b.averageSpeedMetersPerSecond.value !== null) {
     const faster = a.averageSpeedMetersPerSecond.value > b.averageSpeedMetersPerSecond.value ? teamAName : teamBName;
     out.push({
-      text: `${faster}'s visible players moved slightly faster on average (${formatMetric(a.averageSpeedMetersPerSecond.value, "m/s")} vs ${formatMetric(b.averageSpeedMetersPerSecond.value, "m/s")}).`,
+      text: `${faster}'s visible players moved slightly faster on average (${formatMetric(a.averageSpeedMetersPerSecond.value, "m/s")} against ${formatMetric(b.averageSpeedMetersPerSecond.value, "m/s")}).`,
       q: "low",
     });
   }
@@ -62,73 +65,101 @@ function takeaways(result: AnalysisResult, teamFrames: TeamFrame[]): { text: str
   return out;
 }
 
+/**
+ * The overview a coach reads first, laid out as reference panels: the Match Stats card
+ * (possession split, then the few comparisons that matter) beside the pitch card, stacked on narrow
+ * screens; then plain-language observations and the moments worth replaying.
+ */
 export function SummaryView({ result, teamFrames }: { result: AnalysisResult; teamFrames: TeamFrame[] }) {
-  const { seek } = usePlayback();
+  const { seek } = usePlaybackControls();
   const items = takeaways(result, teamFrames);
-  const [a, b] = result.analytics;
   const { teamAName, teamBName, teamAColor, teamBColor } = result.teams;
-  const kpis = [
-    { label: `${teamAName} possession`, m: a.possessionPercent },
-    { label: `${teamBName} possession`, m: b.possessionPercent },
-    { label: "Estimated shots", m: { ...a.shotCount, value: a.shotCount.value !== null && b.shotCount.value !== null ? a.shotCount.value + b.shotCount.value : null } },
-    { label: "Analyzed", m: { value: result.coverage.analyzedDurationSeconds, unit: "s", quality: "high" as const } },
-  ];
+  const analyzed = result.coverage.analyzedDurationSeconds;
+  const nameOf = (id: string) => (id === "team_a" ? teamAName : id === "team_b" ? teamBName : null);
+  const colorOf = (id: string) => (id === "team_a" ? teamAColor : id === "team_b" ? teamBColor : null);
+
   return (
     <div className="space-y-5">
       {isPartial(result) && (
         <Notice tone="warn" title="Partial analysis">
-          Some metrics are unavailable or based on limited coverage. See the data-quality section for details.
+          Some metrics are unavailable or based on limited coverage. The data quality section explains what is missing.
         </Notice>
       )}
-      <Card>
-        <CardHeader
-          title="Match summary"
-          subtitle={
-            <span className="inline-flex flex-wrap items-center gap-2">
-              <TeamChip color={teamAColor} name={teamAName} /> vs <TeamChip color={teamBColor} name={teamBName} /> · {result.video.fileName}
-            </span>
-          }
-        />
-        <div className="grid grid-cols-2 gap-3 px-5 pb-5 md:grid-cols-4">
-          {kpis.map((k) => (
-            <div key={k.label} className="rounded-lg border border-line p-3">
-              <p className="text-xs text-ink-2">{k.label}</p>
-              <p className="mt-1 text-2xl font-bold tabular-nums">{formatMetric(k.m.value, k.m.unit, 0)}</p>
-              {k.m.quality !== "high" && <QualityBadge quality={k.m.quality} className="mt-1" />}
-            </div>
-          ))}
-        </div>
-      </Card>
-      <Card>
-        <CardHeader title="Key takeaways" subtitle="Descriptive observations generated only from available metrics — not coaching advice." />
-        {items.length ? (
-          <ul className="space-y-2 px-5 pb-5">
-            {items.map((t) => (
-              <li key={t.text} className="flex items-start gap-3 text-sm">
-                <span className="mt-1.5 size-2 shrink-0 rounded-full bg-brand" aria-hidden />
-                <span className="flex-1">{t.text}</span>
-                <QualityBadge quality={t.q} />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="px-5 pb-5 text-sm text-ink-2">Not enough reliable data to generate takeaways for this clip.</p>
-        )}
-      </Card>
-      {result.events.length > 0 && (
-        <Card>
-          <CardHeader title="Event timeline" />
-          <ul className="flex flex-wrap gap-2 px-5 pb-5">
-            {result.events.map((e) => (
-              <li key={e.eventId}>
-                <button onClick={() => seek(Math.max(0, e.timestampSeconds - 1), { play: true })} className="rounded-full border border-line px-3 py-1 text-sm hover:bg-page">
-                  {e.type === "goal" ? "Possible goal" : "Est. shot"} · {formatClock(e.timestampSeconds)}
-                </button>
-              </li>
-            ))}
-          </ul>
+
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <Card className="min-w-0">
+          <CardHeader
+            title="Match stats"
+            subtitle={
+              <>
+                From <span className="tabular font-medium text-ink">{formatClock(analyzed)}</span> of analyzed footage in{" "}
+                <span className="break-all">{result.video.fileName}</span>.
+              </>
+            }
+          />
+          <div className="px-5 pb-5">
+            <TeamStats result={result} keys={["possessionPercent", "shotCount", "distanceMeters", "widthMeters", "compactness"]} compact />
+          </div>
         </Card>
-      )}
+
+        <Card className="min-w-0">
+          <CardHeader title="On the pitch" subtitle="Where each team spent the clip. Scrub the video to see the positions at any moment." />
+          <div className="px-5 pb-5">
+            <PitchPanel result={result} teamFrames={teamFrames} defaultLayer="occupancy" defaultScope="full" compact />
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <Card className="min-w-0">
+          <CardHeader title="What the footage shows" subtitle="Descriptive observations from the measured data, not coaching advice." />
+          <div className="px-5 pb-3">
+            {items.length ? (
+              <ul className="divide-y divide-line-soft border-t border-line-soft">
+                {items.map((t) => (
+                  <li key={t.text} className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1.5 py-3">
+                    <span className="max-w-prose min-w-0 flex-1 basis-56 text-sm leading-relaxed text-ink">{t.text}</span>
+                    <QualityBadge quality={t.q} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="pb-2 text-sm leading-relaxed text-ink-2">There is not enough reliable data in this clip to say anything with confidence.</p>
+            )}
+          </div>
+        </Card>
+
+        {result.events.length > 0 && (
+          <Card className="min-w-0">
+            <CardHeader title="Moments to replay" subtitle="Estimated events. Choose one to play it from a second before." />
+            <ul className="space-y-1 px-3 pb-3">
+              {result.events.map((e) => {
+                const name = nameOf(e.teamId);
+                const color = colorOf(e.teamId);
+                return (
+                  <li key={e.eventId}>
+                    <button
+                      type="button"
+                      onClick={() => seek(Math.max(0, e.timestampSeconds - 1), { play: true })}
+                      className="group flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-page"
+                    >
+                      <span className="hidden size-8 shrink-0 place-items-center rounded-full bg-brand-soft sm:grid text-ok transition-colors group-hover:bg-brand group-hover:text-navy-950">
+                        <Play className="size-3.5 translate-x-px fill-current" aria-hidden />
+                      </span>
+                      <span className="font-hud w-12 shrink-0 text-[19px] leading-none font-semibold text-ink">{formatClock(e.timestampSeconds)}</span>
+                      <span className="estimate min-w-0 flex-1 truncate text-sm font-semibold text-ink">{e.type === "goal" ? "Possible goal" : "Possible shot"}</span>
+                      <span className="flex min-w-0 items-center gap-1.5 text-[13px] text-ink-2">
+                        {color && <Magnet color={color} />}
+                        <span className="max-w-[6rem] truncate sm:max-w-[9rem]">{name ?? "Team unknown"}</span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }
