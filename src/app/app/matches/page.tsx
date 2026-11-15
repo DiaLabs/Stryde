@@ -3,32 +3,43 @@
 import { Film, Upload } from "lucide-react";
 import { MatchList } from "@/components/match/MatchList";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { Card, EmptyState, LinkButton } from "@/components/ui/primitives";
+import { Card, CardHeader, EmptyState, LinkButton } from "@/components/ui/primitives";
 import { useStryde } from "@/lib/store";
 
 export default function MatchesPage() {
   const count = useStryde((s) => s.order.length);
   return (
-    <div className="pb-12">
+    <div className="pb-16">
       <PageHeader
         title="Matches"
-        subtitle="Analyses from this browser session. They are kept in memory only — reloading or closing the tab clears them."
+        subtitle="Clips analyzed in this tab. They are kept in memory only, so reloading or closing the tab clears them."
+        actions={
+          count ? (
+            <LinkButton href="/app/analyze" variant="navy">
+              <Upload className="size-4" aria-hidden /> Upload match
+            </LinkButton>
+          ) : undefined
+        }
       />
-      <div className="px-4 sm:px-8">
-        <Card>
+      <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8">
+        <Card className="overflow-hidden">
           {count ? (
-            <MatchList />
+            <>
+              <CardHeader title="All matches" subtitle={`${count} ${count === 1 ? "clip" : "clips"} in this tab, newest first.`} />
+              <MatchList />
+            </>
           ) : (
             <EmptyState
-              icon={<Film className="size-6" />}
-              title="No matches in this session"
+              icon={<Film className="size-6" aria-hidden />}
+              title="No matches yet"
               action={
-                <LinkButton href="/app/analyze" size="lg">
-                  <Upload className="size-5" /> Analyze a match
+                <LinkButton href="/app/analyze">
+                  <Upload className="size-4" aria-hidden /> Upload match
                 </LinkButton>
               }
             >
-              Stryde does not keep a cloud history. Analyze a clip to see it listed here while this tab stays open.
+              Stryde keeps no history online. Analyze a clip from your last match, or try the built-in sample clip, and it will be listed here for as long as
+              this tab stays open.
             </EmptyState>
           )}
         </Card>

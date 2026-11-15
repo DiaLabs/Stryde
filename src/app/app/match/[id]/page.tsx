@@ -1,13 +1,35 @@
 "use client";
 
-import { Ban, FileQuestion, RotateCcw, Upload } from "lucide-react";
+import { ArrowLeft, CircleSlash, FileQuestion, RotateCcw, Upload } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Suspense } from "react";
 import { MatchWorkspace } from "@/components/match/MatchWorkspace";
 import { ProcessingView } from "@/components/processing/ProcessingView";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { Button, Card, EmptyState, LinkButton, Notice } from "@/components/ui/primitives";
-import { useStryde } from "@/lib/store";
+import { Button, Card, EmptyState, LinkButton, Notice, TeamChip } from "@/components/ui/primitives";
+import { useStryde, type MatchEntry } from "@/lib/store";
+
+const PENDING_COLOR = "#9aa5ae";
+
+function Teams({ entry }: { entry: MatchEntry }) {
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <TeamChip color={entry.config.teamAColor ?? PENDING_COLOR} name={entry.config.teamAName} className="font-semibold text-ink" />
+      <span className="text-ink-2">vs</span>
+      <TeamChip color={entry.config.teamBColor ?? PENDING_COLOR} name={entry.config.teamBName} className="font-semibold text-ink" />
+      <span className="ml-2 min-w-0 truncate text-ink-2">· {entry.meta.fileName}</span>
+    </span>
+  );
+}
+
+const container = "mx-auto max-w-[1400px] px-4 pb-16 sm:px-6 lg:px-8";
+
+const back = (
+  <Link href="/app/matches" aria-label="Back to matches" className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg text-ink transition-colors hover:bg-ink/5">
+    <ArrowLeft className="size-5" aria-hidden />
+  </Link>
+);
 
 function MatchPageInner() {
   const { id } = useParams<{ id: string }>();
@@ -16,21 +38,29 @@ function MatchPageInner() {
 
   if (!entry) {
     return (
-      <div className="px-4 py-10 sm:px-8">
-        <Card>
-          <EmptyState
-            icon={<FileQuestion className="size-5" />}
-            title="This analysis is no longer available"
-            action={
-              <LinkButton href="/app/analyze">
-                <Upload className="size-4" /> Analyze a match
-              </LinkButton>
-            }
-          >
-            Results exist only in the browser tab that created them and are cleared on reload or when the tab closes. Nothing is stored on a server.
-          </EmptyState>
-        </Card>
-      </div>
+      <>
+        <PageHeader back={back} title="Match not found" />
+        <div className={container}>
+          <Card>
+            <EmptyState
+              icon={<FileQuestion className="size-6" aria-hidden />}
+              title="This match is no longer here"
+              action={
+                <>
+                  <LinkButton href="/app/analyze">
+                    <Upload className="size-4" aria-hidden /> Upload match
+                  </LinkButton>
+                  <LinkButton href="/app/matches" variant="secondary">
+                    See your matches
+                  </LinkButton>
+                </>
+              }
+            >
+              Results exist only in the browser tab that created them, and are cleared when the tab is reloaded or closed. Nothing is stored on a server.
+            </EmptyState>
+          </Card>
+        </div>
+      </>
     );
   }
 
@@ -43,26 +73,27 @@ function MatchPageInner() {
     const err = entry.error;
     return (
       <>
-        <PageHeader title={title} subtitle={entry.meta.fileName} />
-        <div className="max-w-3xl space-y-4 px-4 sm:px-8">
-          <Notice tone="danger" title="Analysis failed">
-            {err?.message ?? "An unexpected error stopped the analysis."}
-            {err?.suggestedAction && <span className="mt-1 block font-medium">Next step: {err.suggestedAction}</span>}
-            <span className="mt-1 block">Your video never left this device.</span>
-          </Notice>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => retry(entry.id)}>
-              <RotateCcw className="size-4" /> Retry
-            </Button>
-            {entry.config.mode === "detailed" && (
-              <Button variant="secondary" onClick={() => retry(entry.id, { mode: "faster" })}>
-                Retry in Faster mode
+        <PageHeader back={back} title="The analysis stopped" subtitle={<Teams entry={entry} />} />
+        <div className={container}>
+          <Card className="max-w-3xl space-y-5 p-5">
+            <Notice tone="danger" title={err?.message ?? "An unexpected error stopped the analysis."}>
+              {err?.suggestedAction && <span className="block">Next step: {err.suggestedAction}</span>}
+              <span className="mt-1 block">Your video never left this device.</span>
+            </Notice>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => retry(entry.id)}>
+                <RotateCcw className="size-4" aria-hidden /> Try again
               </Button>
-            )}
-            <LinkButton href="/app/analyze" variant="secondary">
-              Choose another video
-            </LinkButton>
-          </div>
+              {entry.config.mode === "detailed" && (
+                <Button variant="secondary" onClick={() => retry(entry.id, { mode: "faster" })}>
+                  Try again in Faster mode
+                </Button>
+              )}
+              <LinkButton href="/app/analyze" variant="secondary">
+                Choose another video
+              </LinkButton>
+            </div>
+          </Card>
         </div>
       </>
     );
@@ -70,30 +101,29 @@ function MatchPageInner() {
 
   if (s === "cancelled") {
     return (
-      <div className="flex min-h-[calc(100vh-3rem)] flex-col items-center justify-center px-4 py-10 sm:px-8">
-        <Card className="w-full max-w-xl">
-          <EmptyState
-            icon={
-              <div className="grid size-14 place-items-center rounded-2xl bg-warn-bg text-warn">
-                <Ban className="size-7" />
-              </div>
-            }
-            title="Analysis cancelled"
-            action={
-              <div className="flex flex-wrap justify-center gap-3">
-                <Button size="lg" onClick={() => retry(entry.id)}>
-                  <RotateCcw className="size-5" /> Restart analysis
-                </Button>
-                <LinkButton href="/app/analyze" variant="secondary" size="lg">
-                  Choose another video
-                </LinkButton>
-              </div>
-            }
-          >
-            Temporary data was released. The video is still selected in this tab, so you can restart without choosing it again.
-          </EmptyState>
-        </Card>
-      </div>
+      <>
+        <PageHeader back={back} title="Analysis cancelled" subtitle={<Teams entry={entry} />} />
+        <div className={container}>
+          <Card>
+            <EmptyState
+              icon={<CircleSlash className="size-6" aria-hidden />}
+              title="Nothing was kept from this run"
+              action={
+                <>
+                  <Button onClick={() => retry(entry.id)}>
+                    <RotateCcw className="size-4" aria-hidden /> Restart analysis
+                  </Button>
+                  <LinkButton href="/app/analyze" variant="secondary">
+                    Choose another video
+                  </LinkButton>
+                </>
+              }
+            >
+              Temporary data was released. The video is still selected in this tab, so you can restart without choosing it again.
+            </EmptyState>
+          </Card>
+        </div>
+      </>
     );
   }
 
