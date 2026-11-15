@@ -2,3 +2,5 @@
 allowBuilds:
   esbuild: true
   protobufjs: true
+  # CPU binaries ship in the package; the script only downloads optional CUDA files.
+  onnxruntime-node: false

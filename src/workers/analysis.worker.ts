@@ -7,7 +7,9 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from "../lib/types";
-import { grassFraction, jerseyColor, type RgbaImage } from "../lib/vision/features";
+import { DEFAULT_POLICY, selectBallCandidates, selectPeople } from "../lib/analysis/detections";
+import type { RgbaImage } from "../lib/vision/features";
+import { frameFeatures } from "../lib/vision/frame";
 import { estimateMotion, makeThumb, type Thumb } from "../lib/vision/motion";
 import { AssociationTracker } from "../lib/vision/tracker";
 import { decodeYolo, letterboxParams, toTensorData } from "../lib/vision/yolo";
@@ -194,34 +196,12 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   }
   prevThumb = thumb;
 
-  // Keep on-pitch people: plausible size/shape and grass around the feet.
-  const players = decoded.players
-    .filter((d) => {
-      const b = d.box;
-      if (b.height < 0.025 || b.width < 0.004) return false;
-      const aspect = b.height / Math.max(1e-4, b.width);
-      if (aspect < 0.9 || aspect > 5.5) return false;
-      if (b.height > 0.6) return false;
-      const g = grassFraction(img, b.x + b.width / 2, b.y + b.height, Math.max(b.width, 0.01), Math.max(b.height * 0.15, 0.008));
-      return g >= 0.2;
-    })
-    .map((d) => ({ box: d.box, confidence: d.score, color: jerseyColor(img, d.box) }));
-
-  const ballCandidates = decoded.balls
-    .filter((d) => {
-      const b = d.box;
-      if (b.width > 0.048 || b.height > 0.065) return false;
-      const ar = b.width / Math.max(1e-4, b.height);
-      if (ar < 0.45 || ar > 2.2) return false;
-      const cx = b.x + b.width / 2;
-      const cy = b.y + b.height / 2;
-      // Airborne balls often sit above grass — relax the pitch check when high in frame or confident.
-      if (cy < 0.5 || d.score >= 0.22) return true;
-      const g = grassFraction(img, cx, cy, Math.max(b.width * 2.5, 0.01), Math.max(b.height * 2.5, 0.015));
-      return g >= 0.1;
-    })
-    .sort((a, b) => b.score - a.score);
-  const balls = ballCandidates.length ? [{ box: ballCandidates[0].box, confidence: ballCandidates[0].score }] : [];
+  // Features for every detection; the pipeline decides offline which are players and which
+  // candidate is the ball. The online tracker here only drives the live processing preview.
+  const feats = frameFeatures(decoded, img);
+  const players = selectPeople(feats.people);
+  const previewBall = selectBallCandidates(feats.balls, { ...DEFAULT_POLICY, ball: { ...DEFAULT_POLICY.ball, keep: 1 } });
+  const balls = previewBall.map((b) => ({ box: b.box, confidence: b.confidence }));
 
   const ids = tracker.update(players, t, motionX, motionY, sceneCut);
   const record: WorkerFrameRecord = {
@@ -235,6 +215,8 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
     motionY,
     sceneCut,
     inferenceMs,
+    people: feats.people,
+    ballCandidates: feats.balls,
   };
   post({ type: "frame", record });
 }

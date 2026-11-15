@@ -266,6 +266,10 @@ export interface WorkerFrameRecord {
   motionY: number;
   sceneCut: boolean;
   inferenceMs: number;
+  /** every person detection with its features; the pipeline filters and tracks these offline */
+  people?: import("./vision/frame").PersonDetection[];
+  /** top ball candidates with features; the pipeline chooses among them offline */
+  ballCandidates?: import("./vision/frame").BallCandidate[];
 }
 
 export interface DetectorSettings {

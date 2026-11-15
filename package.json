@@ -12,7 +12,10 @@
     "build": "pnpm run assets && next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "eval": "tsx scripts/eval/run.ts",
+    "eval:extract": "tsx scripts/eval/extract.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -31,7 +34,10 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.15.0",
     "eslint-config-next": "16.4.6",
+    "onnxruntime-node": "^1.31.1",
     "tailwindcss": "^4.3.5",
-    "typescript": "^6.0.3"
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0"
   }
 }

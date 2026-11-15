@@ -10,6 +10,7 @@ import type {
 import { deltaE, hexToLab, labToHex } from "../vision/color";
 import { buildTeamFrames, calculateAnalytics } from "./analytics";
 import { selectBall } from "./ball";
+import { prepareFrames } from "./detections";
 import { detectEvents } from "./events";
 import { estimatePossession, sampleDurations } from "./possession";
 import { classifyTracks, estimateTeamColors, userColorModel } from "./teams";
@@ -39,7 +40,7 @@ export interface AnalysisOverrides {
 }
 
 export function buildResult(raw: RawAnalysis, overrides: AnalysisOverrides = {}): AnalysisResult {
-  const frames = raw.frames.slice().sort((a, b) => a.timestampSeconds - b.timestampSeconds);
+  const frames = prepareFrames(raw.frames.slice().sort((a, b) => a.timestampSeconds - b.timestampSeconds));
   const warnings = [...raw.warnings];
   const summaries = buildFrameSummaries(frames);
   const tracks = buildTracks(frames);
