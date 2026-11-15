@@ -1,8 +1,9 @@
 "use client";
 
 import clsx from "clsx";
-import { AlertCircle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, CheckCircle2, Cpu, Loader2, RefreshCw, Zap } from "lucide-react";
 import { useSyncExternalStore } from "react";
+import { acceleratorLabel, useAccelerator } from "@/lib/accelerator";
 import { getModelCacheSnapshot, modelCacheSummary, preloadAllModels, retryModel, subscribeModelCache } from "@/lib/models/cache";
 import { ALL_MODEL_IDS } from "@/lib/models/registry";
 
@@ -13,7 +14,9 @@ import { ALL_MODEL_IDS } from "@/lib/models/registry";
 export function ModelStatusBar({ dark, compact, className }: { dark?: boolean; compact?: boolean; className?: string }) {
   const snapshot = useSyncExternalStore(subscribeModelCache, getModelCacheSnapshot, getModelCacheSnapshot);
   const summary = modelCacheSummary();
+  const accel = useAccelerator();
   if (summary.state === "idle") return null;
+  const AccelIcon = accel === "gpu" ? Zap : Cpu;
 
   const retry = () => {
     for (const id of ALL_MODEL_IDS) if (snapshot[id].state === "error") retryModel(id);
@@ -27,7 +30,11 @@ export function ModelStatusBar({ dark, compact, className }: { dark?: boolean; c
         {summary.state === "loading" && <Loader2 className="size-3.5 animate-spin text-brand" aria-hidden />}
         {summary.state === "ready" && <CheckCircle2 className="size-3.5 text-brand" aria-hidden />}
         {summary.state === "error" && <AlertCircle className="size-3.5" aria-hidden />}
-        {summary.state === "loading" ? <span className="tabular">Engine {pct}%</span> : summary.state === "ready" ? "Ready" : (
+        {summary.state === "loading" ? (
+          <span className="tabular">Engine {pct}%</span>
+        ) : summary.state === "ready" ? (
+          accel === "checking" ? "Ready" : `Ready, ${acceleratorLabel[accel].short}`
+        ) : (
           <button type="button" onClick={retry} className="font-semibold underline">
             Retry engine
           </button>
@@ -52,6 +59,12 @@ export function ModelStatusBar({ dark, compact, className }: { dark?: boolean; c
           </button>
         )}
       </div>
+      {accel !== "checking" && summary.state !== "error" && (
+        <p className={clsx("mt-1.5 flex items-start gap-1.5 pl-[18px] text-[11px] leading-snug", dark ? "text-white/55" : "text-ink-2")}>
+          <AccelIcon className={clsx("mt-px size-3 shrink-0", accel === "gpu" ? "text-brand" : dark ? "text-white/55" : "text-ink-2")} aria-hidden />
+          {acceleratorLabel[accel].long}
+        </p>
+      )}
       {summary.state === "loading" && (
         <div className={clsx("mt-2 h-1 overflow-hidden rounded-full", dark ? "bg-white/10" : "bg-line-soft")}>
           <div className="h-full rounded-full bg-brand transition-[width]" style={{ width: `${pct}%` }} />
