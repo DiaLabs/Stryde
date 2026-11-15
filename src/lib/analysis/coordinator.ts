@@ -36,13 +36,16 @@ export const MODE_PROFILES: Record<"faster" | "detailed" | "detailed_cpu", ModeP
 };
 
 export async function detectWebGpu(): Promise<boolean> {
-  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(o?: object): Promise<unknown> } }).gpu;
   if (!gpu) return false;
-  try {
-    return !!(await gpu.requestAdapter());
-  } catch {
-    return false;
+  for (const opts of [{ powerPreference: "high-performance" }, {}]) {
+    try {
+      if (await gpu.requestAdapter(opts)) return true;
+    } catch {
+      /* try the next option */
+    }
   }
+  return false;
 }
 
 function toError(code: string, message: string): AnalysisError {
@@ -236,15 +239,16 @@ export class AnalysisCoordinator {
       try {
         // In Detailed mode, never build the large model on the CPU: fail fast and drop to the
         // smaller model instead.
-        const r = await this.initWorker(profile, gpu ? "webgpu" : "wasm", modelBuffer, !isDetailedGpu);
+        // GPU first: WebGPU when available, else the worker tries WebGL before the processor
+        const r = await this.initWorker(profile, gpu ? "webgpu" : "webgl", modelBuffer, !isDetailedGpu);
         provider = r.provider;
         warnings.push(...r.warnings);
       } catch (e) {
         if (!isDetailedGpu || (e as AnalysisError).code !== "webgpu_failed" || this.cancelled) throw e;
         profile = MODE_PROFILES.detailed_cpu;
-        adaptations.push("GPU backend failed: switched to the smaller model at 8 samples/s on the CPU backend.");
+        adaptations.push("WebGPU failed: switched to the smaller model at 8 samples/s (graphics card through WebGL when possible, else the processor).");
         const nBuf = await ensureModel("yolo11n");
-        const r2 = await this.initWorker(profile, "wasm", nBuf);
+        const r2 = await this.initWorker(profile, "webgl", nBuf);
         provider = r2.provider;
         warnings.push(...r2.warnings);
       }
@@ -252,7 +256,7 @@ export class AnalysisCoordinator {
       return this.fail(e as AnalysisError);
     }
     if (this.cancelled) return;
-    if (provider === "wasm") warnings.push("Running on the CPU (WebAssembly) backend; analysis will be slower than with WebGPU.");
+    // the worker already explains why it chose WebGL or the processor; no second warning here
     this.update({ provider, warnings: [...warnings, ...adaptations], progress: 0.05 });
 
     // --- frame loop
@@ -343,16 +347,18 @@ export class AnalysisCoordinator {
         } catch (e) {
           const err = e as AnalysisError;
           if (this.cancelled) return;
-          if (provider === "webgpu" && !gpuFallbackUsed) {
+          if ((provider === "webgpu" || provider === "webgl") && !gpuFallbackUsed) {
             // GPU failure mid-run: restart on CPU with the smaller model and re-run the frames
             // that were in flight, so none are silently dropped.
             gpuFallbackUsed = true;
             inflight.length = 0;
             this.pending.clear();
             profile = MODE_PROFILES.faster;
+            const failedOn = provider;
             try {
               const nBuf = await ensureModel("yolo11n");
-              const r = await this.initWorker(profile, "wasm", nBuf);
+              // step down one level: WebGPU -> WebGL (still the graphics card), WebGL -> processor
+              const r = await this.initWorker(profile, failedOn === "webgpu" ? "webgl" : "wasm", nBuf);
               provider = r.provider;
             } catch (e2) {
               if (this.cancelled) return;
@@ -364,7 +370,7 @@ export class AnalysisCoordinator {
             trackIdOffset = maxId + 1;
             markNextAsCut = true;
             adaptations.push(
-              `GPU inference failed at ${times[head.index].toFixed(1)} s (${err.message}); continued on CPU with the smaller model. Tracks restart at that point.`
+              `GPU inference failed at ${times[head.index].toFixed(1)} s (${err.message}); continued ${provider === "wasm" ? "on the processor" : "on the graphics card (WebGL)"} with the smaller model. Tracks restart at that point.`
             );
             this.update({ provider, warnings: [...warnings, ...adaptations] });
             i = head.index - 1;

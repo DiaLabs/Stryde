@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import { AlertCircle, CheckCircle2, Cpu, Loader2, RefreshCw, Zap } from "lucide-react";
 import { useSyncExternalStore } from "react";
-import { acceleratorLabel, useAccelerator } from "@/lib/accelerator";
+import { describeAccelerator, useAccelerator } from "@/lib/accelerator";
 import { getModelCacheSnapshot, modelCacheSummary, preloadAllModels, retryModel, subscribeModelCache } from "@/lib/models/cache";
 import { ALL_MODEL_IDS } from "@/lib/models/registry";
 
@@ -16,7 +16,8 @@ export function ModelStatusBar({ dark, compact, className }: { dark?: boolean; c
   const summary = modelCacheSummary();
   const accel = useAccelerator();
   if (summary.state === "idle") return null;
-  const AccelIcon = accel === "gpu" ? Zap : Cpu;
+  const AccelIcon = accel.kind === "gpu" ? Zap : Cpu;
+  const desc = describeAccelerator(accel);
 
   const retry = () => {
     for (const id of ALL_MODEL_IDS) if (snapshot[id].state === "error") retryModel(id);
@@ -33,7 +34,7 @@ export function ModelStatusBar({ dark, compact, className }: { dark?: boolean; c
         {summary.state === "loading" ? (
           <span className="tabular">Engine {pct}%</span>
         ) : summary.state === "ready" ? (
-          accel === "checking" ? "Ready" : `Ready, ${acceleratorLabel[accel].short}`
+          desc ? `Ready, ${desc.short}` : "Ready"
         ) : (
           <button type="button" onClick={retry} className="font-semibold underline">
             Retry engine
@@ -59,11 +60,14 @@ export function ModelStatusBar({ dark, compact, className }: { dark?: boolean; c
           </button>
         )}
       </div>
-      {accel !== "checking" && summary.state !== "error" && (
-        <p className={clsx("mt-1.5 flex items-start gap-1.5 pl-[18px] text-[11px] leading-snug", dark ? "text-white/55" : "text-ink-2")}>
-          <AccelIcon className={clsx("mt-px size-3 shrink-0", accel === "gpu" ? "text-brand" : dark ? "text-white/55" : "text-ink-2")} aria-hidden />
-          {acceleratorLabel[accel].long}
-        </p>
+      {desc && summary.state !== "error" && (
+        <div className={clsx("mt-1.5 pl-[18px] text-[11px] leading-snug", dark ? "text-white/55" : "text-ink-2")}>
+          <p className="flex items-start gap-1.5">
+            <AccelIcon className={clsx("mt-px size-3 shrink-0", accel.kind === "gpu" ? "text-brand" : "")} aria-hidden />
+            <span>{desc.long}</span>
+          </p>
+          {desc.hint && <p className={clsx("mt-1", dark ? "text-white/40" : "text-ink-2/80")}>{desc.hint}</p>}
+        </div>
       )}
       {summary.state === "loading" && (
         <div className={clsx("mt-2 h-1 overflow-hidden rounded-full", dark ? "bg-white/10" : "bg-line-soft")}>

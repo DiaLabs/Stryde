@@ -164,7 +164,7 @@ export function ProcessingView({ entry }: { entry: MatchEntry; title?: string })
             </p>
             {s.provider && (
               <p className="mt-6 text-xs text-ink-2">
-                Running on the <span className="font-semibold text-ink">{s.provider === "webgpu" ? "graphics chip" : "processor"}</span> of this device.
+                Running on the <span className="font-semibold text-ink">{s.provider === "webgpu" ? "graphics card (WebGPU)" : s.provider === "webgl" ? "graphics card (WebGL)" : "processor"}</span> of this device.
               </p>
             )}
           </div>

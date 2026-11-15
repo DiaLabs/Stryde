@@ -2,7 +2,8 @@
 
 export type TeamId = "team_a" | "team_b" | "unknown";
 export type AnalysisMode = "faster" | "detailed";
-export type ExecutionProvider = "webgpu" | "wasm";
+/** webgpu and webgl both run on the graphics card; wasm runs on the processor */
+export type ExecutionProvider = "webgpu" | "webgl" | "wasm";
 export type QualityLevel = "high" | "medium" | "low" | "unavailable";
 
 export interface MatchConfig {

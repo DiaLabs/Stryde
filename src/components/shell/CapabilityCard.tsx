@@ -4,6 +4,7 @@ import { Cpu, Gauge, ShieldCheck, type LucideIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Badge, Card, CardHeader } from "@/components/ui/primitives";
 import { detectWebGpu } from "@/lib/analysis/coordinator";
+import { describeAccelerator, useAccelerator } from "@/lib/accelerator";
 
 export function useCapabilities() {
   const [caps, setCaps] = useState<{ webgpu: boolean | null; isolated: boolean; threads: number }>({
@@ -48,28 +49,30 @@ function Row({ icon: Icon, term, children }: { icon: LucideIcon; term: string; c
  */
 export function CapabilityCard() {
   const caps = useCapabilities();
+  const accel = useAccelerator();
+  const desc = describeAccelerator(accel);
   const cores = caps.isolated ? Math.min(4, Math.max(1, caps.threads - 1)) : 1;
   return (
     <Card>
       <CardHeader
         title="This device"
         action={
-          caps.webgpu === null ? (
+          accel.kind === "checking" ? (
             <Badge tone="neutral">Checking…</Badge>
-          ) : caps.webgpu ? (
-            <Badge tone="ok">Graphics chip</Badge>
+          ) : accel.kind === "gpu" ? (
+            <Badge tone="ok">GPU, {accel.api}</Badge>
           ) : (
-            <Badge tone="warn">Processor only</Badge>
+            <Badge tone="warn">CPU only</Badge>
           )
         }
       />
-      <dl className="grid divide-y divide-line-soft px-5 pb-5 sm:grid-cols-3 sm:gap-6 sm:divide-y-0" aria-busy={caps.webgpu === null || undefined}>
+      <dl className="grid divide-y divide-line-soft px-5 pb-5 sm:grid-cols-3 sm:gap-6 sm:divide-y-0" aria-busy={accel.kind === "checking" || undefined}>
         <Row icon={Gauge} term="Speed">
-          {caps.webgpu === null
+          {!desc
             ? "Checking this browser…"
-            : caps.webgpu
-              ? "This device can use its graphics chip, the quick way to analyze. Both modes work here, including More detailed."
-              : "Analysis runs on the processor, which is slower. Use Faster mode and expect a one-minute clip to take several minutes. A recent Chrome or Edge on a laptop or desktop usually unlocks the graphics chip."}
+            : accel.kind === "gpu"
+              ? `${desc.long}. ${accel.api === "WebGPU" ? "Both modes work well here, including More detailed." : "Faster mode is quick here; More detailed is best with WebGPU."}${desc.hint ? ` ${desc.hint}` : ""}`
+              : `${desc.long}. Use Faster mode and expect a one-minute clip to take several minutes.${desc.hint ? ` ${desc.hint}` : ""}`}
         </Row>
         <Row icon={Cpu} term="Processor">
           {cores > 1 ? (

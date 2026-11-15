@@ -49,10 +49,27 @@ function validateModelBuffer(buf: ArrayBuffer, modelUrl: string): void {
 }
 
 async function hasWebGpu(): Promise<boolean> {
-  const gpu = (self.navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  const gpu = (self.navigator as Navigator & { gpu?: { requestAdapter(o?: object): Promise<unknown> } }).gpu;
   if (!gpu) return false;
+  // prefer the discrete GPU on laptops with two
+  for (const opts of [{ powerPreference: "high-performance" }, {}]) {
+    try {
+      if (await gpu.requestAdapter(opts)) return true;
+    } catch {
+      /* try the next option */
+    }
+  }
+  return false;
+}
+
+/** WebGL2 on a real graphics card (not a software rasteriser), usable from this worker. */
+function hasHardwareWebGl(): boolean {
   try {
-    return !!(await gpu.requestAdapter());
+    const gl = new OffscreenCanvas(1, 1).getContext("webgl2") as WebGL2RenderingContext | null;
+    if (!gl) return false;
+    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = String(gl.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    return !/swiftshader|llvmpipe|softpipe|software/i.test(renderer);
   } catch {
     return false;
   }
@@ -63,7 +80,8 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
   const warnings: string[] = [];
   if (!ort) {
     try {
-      self.importScripts(ortBase + "ort.webgpu.min.js");
+      // the combined bundle: WebGPU, WebGL and WebAssembly backends
+      self.importScripts(ortBase + "ort.all.min.js");
       ort = self.ort ?? null;
     } catch (e) {
       throw Object.assign(new Error("Could not load the inference runtime. " + String(e)), { code: "runtime_load" });
@@ -98,6 +116,10 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
       const size = s.inputSize;
       const dummy = new ort!.Tensor("float32", new Float32Array(3 * size * size), [1, 3, size, size]);
       const out = await sess.run({ [sess.inputNames[0]]: dummy });
+      // a GPU backend without the precision it needs returns NaNs instead of failing
+      const first = out[sess.outputNames[0]];
+      const data = (await first.getData()) as Float32Array;
+      for (let i = 0; i < data.length; i += 997) if (!Number.isFinite(data[i])) throw new Error("the backend returned invalid numbers");
       for (const k of Object.keys(out)) out[k].dispose?.();
     } catch (e) {
       // release GPU memory held by the failed session before falling back
@@ -122,8 +144,20 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
       }
       warnings.push(`WebGPU initialization failed (${String((e as Error).message ?? e).slice(0, 120)}); using WebAssembly (CPU), which is slower.`);
     }
-  } else if (s.preferredProvider === "webgpu") {
-    warnings.push("WebGPU is not available in this browser; using WebAssembly (CPU), which is slower.");
+  }
+  // Graphics card through WebGL when WebGPU is off (common in Chrome on Linux): slower than
+  // WebGPU, still much faster than the processor.
+  if (!session && s.preferredProvider !== "wasm" && s.allowWasmFallback !== false && hasHardwareWebGl()) {
+    try {
+      session = await tryCreate("webgl");
+      provider = "webgl";
+      warnings.push("WebGPU isn't enabled in this browser, so the graphics card is used through WebGL.");
+    } catch (e) {
+      warnings.push(`The graphics card couldn't run the model through WebGL (${String((e as Error).message ?? e).slice(0, 100)}); using the processor.`);
+    }
+  }
+  if (!session && s.preferredProvider !== "wasm") {
+    warnings.push("No graphics card is available to this browser; using the processor (WebAssembly), which is slower.");
   }
   if (!session) {
     try {
