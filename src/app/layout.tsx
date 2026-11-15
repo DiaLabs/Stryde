@@ -1,21 +1,23 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Inter } from "next/font/google";
+import { Barlow_Condensed, Inter } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
+const inter = Inter({ variable: "--font-inter", subsets: ["latin"], display: "swap" });
+// broadcast-graphics voice for the scorebug, overlay tags and large stat figures
+const barlow = Barlow_Condensed({
+  variable: "--font-barlow",
   subsets: ["latin"],
-  style: ["normal", "italic"],
+  weight: ["500", "600", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: {
-    default: "Stryde — Soccer footage to team insights",
-    template: "%s · Stryde",
+    default: "Stryde: match footage to team insights",
+    template: "%s | Stryde",
   },
   description:
-    "Stryde turns short soccer clips into annotated playback, estimated team possession, heatmaps and team statistics — analyzed locally in your browser.",
+    "Stryde turns short football clips into annotated playback, team possession estimates, heatmaps and side-by-side team statistics, analyzed privately in your browser.",
 };
 
 export const viewport: Viewport = {
@@ -24,7 +26,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${fraunces.variable} h-full antialiased`}>
+    <html lang="en" className={`${inter.variable} ${barlow.variable} h-full antialiased`}>
       <body className="min-h-full font-sans">{children}</body>
     </html>
   );

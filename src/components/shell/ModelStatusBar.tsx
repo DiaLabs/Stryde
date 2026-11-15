@@ -1,94 +1,62 @@
 "use client";
 
 import clsx from "clsx";
-import { AlertCircle, CheckCircle2, Loader2, RefreshCw, X } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
-import {
-  getModelCacheSnapshot,
-  modelCacheSummary,
-  preloadAllModels,
-  retryModel,
-  subscribeModelCache,
-} from "@/lib/models/cache";
-import { ALL_MODEL_IDS, type ModelId } from "@/lib/models/registry";
+import { AlertCircle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { useSyncExternalStore } from "react";
+import { getModelCacheSnapshot, modelCacheSummary, preloadAllModels, retryModel, subscribeModelCache } from "@/lib/models/cache";
+import { ALL_MODEL_IDS } from "@/lib/models/registry";
 
-const READY_DISMISS_KEY = "stryde-model-ready-dismissed";
-
-export function ModelStatusBar() {
+/**
+ * Detection-engine status, shown inside the shell (sidebar on desktop, header on phones).
+ * It used to be a floating toast that covered the header on small screens.
+ */
+export function ModelStatusBar({ dark, compact, className }: { dark?: boolean; compact?: boolean; className?: string }) {
   const snapshot = useSyncExternalStore(subscribeModelCache, getModelCacheSnapshot, getModelCacheSnapshot);
   const summary = modelCacheSummary();
-  const [dismissed, setDismissed] = useState(false);
-
-  useEffect(() => {
-    if (summary.state === "ready") {
-      if (sessionStorage.getItem(READY_DISMISS_KEY) === "1") setDismissed(true);
-      else {
-        const t = setTimeout(() => setDismissed(true), 4500);
-        return () => clearTimeout(t);
-      }
-    } else {
-      setDismissed(false);
-    }
-  }, [summary.state]);
-
-  if (summary.state === "ready" && dismissed) return null;
   if (summary.state === "idle") return null;
 
-  const dismissReady = () => {
-    sessionStorage.setItem(READY_DISMISS_KEY, "1");
-    setDismissed(true);
+  const retry = () => {
+    for (const id of ALL_MODEL_IDS) if (snapshot[id].state === "error") retryModel(id);
+    preloadAllModels();
   };
+  const pct = Math.round(summary.progress * 100);
 
-  return (
-    <div
-      className={clsx(
-        "pointer-events-auto fixed top-3 right-3 z-50 max-w-sm rounded-lg border px-3.5 py-2.5 text-sm shadow-lg sm:top-4 sm:right-4",
-        summary.state === "ready" && "border-brand/40 bg-card text-ink",
-        summary.state === "loading" && "border-line bg-card text-ink",
-        summary.state === "error" && "border-red-200 bg-red-50 text-red-900"
-      )}
-      role="status"
-      aria-live="polite"
-    >
-      <div className="flex items-start gap-2.5">
-        {summary.state === "loading" && <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-brand" aria-hidden />}
-        {summary.state === "ready" && <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />}
-        {summary.state === "error" && <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />}
-
-        <div className="min-w-0 flex-1">
-          <p className="font-medium leading-snug">{summary.label}</p>
-          {summary.state === "loading" && (
-            <p className="mt-0.5 text-xs text-ink-2">One-time setup · saved for 30 days in this browser.</p>
-          )}
-          {summary.state === "ready" && <p className="mt-0.5 text-xs text-ink-2">Upload a match clip to get started.</p>}
-          {summary.state === "error" && <p className="mt-0.5 text-xs">Check your connection and try again.</p>}
-        </div>
-
-        {summary.state === "loading" && (
-          <span className="shrink-0 pt-0.5 text-xs font-semibold tabular-nums">{Math.round(summary.progress * 100)}%</span>
-        )}
-
-        {summary.state === "ready" && (
-          <button type="button" onClick={dismissReady} className="shrink-0 rounded p-0.5 text-ink-2 hover:bg-page hover:text-ink" aria-label="Dismiss">
-            <X className="size-4" />
+  if (compact) {
+    return (
+      <p role="status" aria-live="polite" className={clsx("flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium", summary.state === "error" ? "bg-danger-bg text-danger" : "bg-page text-ink-2", className)}>
+        {summary.state === "loading" && <Loader2 className="size-3.5 animate-spin text-brand" aria-hidden />}
+        {summary.state === "ready" && <CheckCircle2 className="size-3.5 text-brand" aria-hidden />}
+        {summary.state === "error" && <AlertCircle className="size-3.5" aria-hidden />}
+        {summary.state === "loading" ? <span className="tabular">Engine {pct}%</span> : summary.state === "ready" ? "Ready" : (
+          <button type="button" onClick={retry} className="font-semibold underline">
+            Retry engine
           </button>
         )}
+      </p>
+    );
+  }
 
+  return (
+    <div role="status" aria-live="polite" className={clsx("rounded-lg px-3 py-2.5 text-xs", dark ? "bg-white/[0.05] text-white/80" : "border border-line bg-card text-ink", className)}>
+      <div className="flex items-center gap-2">
+        {summary.state === "loading" && <Loader2 className="size-3.5 shrink-0 animate-spin text-brand" aria-hidden />}
+        {summary.state === "ready" && <span className="size-2 shrink-0 rounded-full bg-brand shadow-[0_0_0_3px_rgba(32,199,133,0.2)]" aria-hidden />}
+        {summary.state === "error" && <AlertCircle className="size-3.5 shrink-0 text-danger" aria-hidden />}
+        <span className="flex-1 font-medium">
+          {summary.state === "loading" ? "Loading detection model" : summary.state === "ready" ? "Detection engine ready" : "Engine didn’t load"}
+        </span>
+        {summary.state === "loading" && <span className="font-semibold tabular">{pct}%</span>}
         {summary.state === "error" && (
-          <button
-            type="button"
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs font-semibold hover:bg-red-100"
-            onClick={() => {
-              for (const id of ALL_MODEL_IDS) {
-                if (snapshot[id].state === "error") retryModel(id as ModelId);
-              }
-              preloadAllModels();
-            }}
-          >
-            <RefreshCw className="size-3.5" aria-hidden /> Retry
+          <button type="button" onClick={retry} className="inline-flex items-center gap-1 font-semibold text-brand hover:underline">
+            <RefreshCw className="size-3" aria-hidden /> Retry
           </button>
         )}
       </div>
+      {summary.state === "loading" && (
+        <div className={clsx("mt-2 h-1 overflow-hidden rounded-full", dark ? "bg-white/10" : "bg-line-soft")}>
+          <div className="h-full rounded-full bg-brand transition-[width]" style={{ width: `${pct}%` }} />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,12 +1,14 @@
 @import "tailwindcss";
 
+/* Tokens follow docs/design.md §2 and the reference in docs/reference-assets/UI.jpeg. */
 @theme {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* broadcast HUD voice: scorebug, overlay tags, big stat figures */
+  --font-hud: var(--font-barlow), var(--font-inter), ui-sans-serif, sans-serif;
 
   --color-brand: #20c785;
   --color-brand-hover: #18ad72;
+  --color-brand-deep: #0f7a50;
   --color-brand-soft: #e5f7ef;
   --color-navy-950: #07131d;
   --color-navy-900: #0d1d2a;
@@ -15,60 +17,43 @@
   --color-page: #f5f7f8;
   --color-card: #ffffff;
   --color-line: #dde3e7;
+  --color-line-soft: #eaeef1;
   --color-ink: #17232d;
-  --color-ink-2: #65727d;
+  --color-ink-2: #5b6874;
   --color-ok-bg: #e5f7ef;
+  --color-ok: #0f7a50;
   --color-warn-bg: #fff5dd;
   --color-warn: #8a5a00;
   --color-danger: #c83f4f;
   --color-danger-bg: #fbe9eb;
   --color-info-bg: #e8f1fb;
   --color-info: #1f5f9e;
+  --color-pitch: #1d8f55;
+  --color-pitch-2: #1a834e;
+  --color-hud: #ffd400;
+
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.03);
+  --shadow-pop: 0 12px 32px -8px rgba(7, 19, 29, 0.28), 0 2px 6px rgba(7, 19, 29, 0.08);
 }
 
 html {
   color-scheme: light;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   background: var(--color-page);
   color: var(--color-ink);
+  font-feature-settings: "cv11", "ss01";
 }
 
-/* Minimal themed scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+.font-hud {
+  font-family: var(--font-hud);
+  font-variant-numeric: tabular-nums;
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(101, 114, 125, 0.35);
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(32, 199, 133, 0.65);
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(101, 114, 125, 0.35) transparent;
-}
-
-*:hover {
-  scrollbar-color: rgba(32, 199, 133, 0.65) transparent;
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 
 :focus-visible {
@@ -76,22 +61,50 @@ body {
   outline-offset: 2px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
+::selection {
+  background: color-mix(in srgb, var(--color-brand) 30%, transparent);
 }
 
+/* Minimal themed scrollbar (no hover restyle: it forced a style recalc on every hover) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(91, 104, 116, 0.35) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(91, 104, 116, 0.35);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Estimated values: dashed underline (solid = measured, dashed = estimated). */
+.estimate {
+  text-decoration: underline dashed currentColor;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+/* Team-coloured fills get a faint edge so pale kits (white, light grey) stay visible. */
+.team-fill {
+  box-shadow: inset 0 0 0 1px rgba(23, 35, 45, 0.18);
+}
+
+/* Video seek bar */
 input[type="range"].seek {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
-  height: 18px;
+  height: 22px;
+  cursor: pointer;
 }
 input[type="range"].seek::-webkit-slider-runnable-track {
   height: 4px;
@@ -131,7 +144,8 @@ input[type="range"].seek::-moz-range-thumb {
 }
 
 .pitch-stripes {
-  background-image: repeating-linear-gradient(90deg, #1d8f55 0 9.09%, #1a834e 9.09% 18.18%);
+  background-color: var(--color-pitch);
+  background-image: repeating-linear-gradient(90deg, var(--color-pitch) 0 9.09%, var(--color-pitch-2) 9.09% 18.18%);
 }
 
 @keyframes indeterminate {
@@ -144,4 +158,59 @@ input[type="range"].seek::-moz-range-thumb {
 }
 .animate-indeterminate {
   animation: indeterminate 1.4s ease-in-out infinite;
+}
+
+/*
+ * Landing hero scroll progress. The hero section exposes a view timeline; while it is pinned
+ * the stage animates the registered property --p from 0 to 1 on the compositor (no scroll
+ * listeners). LandingHero reads --p for the canvas, or writes it itself where unsupported.
+ */
+@property --p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@keyframes hero-progress {
+  from {
+    --p: 0;
+  }
+  to {
+    --p: 1;
+  }
+}
+@supports (animation-timeline: view()) {
+  .hero {
+    view-timeline: --hero block;
+  }
+  .hero-stage {
+    animation: hero-progress linear both;
+    animation-timeline: --hero;
+    animation-range: contain 0% contain 100%;
+  }
+}
+
+/* View transitions (React <ViewTransition>): quick crossfades and the thumbnail → video morph. */
+::view-transition-group(*) {
+  animation-duration: 260ms;
+  animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 160ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }
