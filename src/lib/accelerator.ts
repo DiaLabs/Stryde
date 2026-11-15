@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import type { DevicePreference } from "./types";
 
 /**
  * Which processor analysis will run on, in order of preference:
@@ -105,4 +106,38 @@ export function describeAccelerator(a: Accelerator): { short: string; long: stri
     long: "Runs on your CPU (WebAssembly); this browser gives no access to a graphics card",
     hint: a.webgpuBlocked ? "Turn on hardware acceleration in the browser settings, or WebGPU in chrome://flags, to use the GPU." : undefined,
   };
+}
+
+// ---------------------------------------------------------------- user's device choice
+
+const PREF_KEY = "stryde-device";
+const prefListeners = new Set<() => void>();
+
+function readPref(): DevicePreference {
+  try {
+    return localStorage.getItem(PREF_KEY) === "cpu" ? "cpu" : "gpu";
+  } catch {
+    return "gpu";
+  }
+}
+
+/** The GPU/CPU choice on the upload page, remembered in this browser (default: GPU). */
+export function useDevicePreference(): [DevicePreference, (v: DevicePreference) => void] {
+  const pref = useSyncExternalStore(
+    (l) => {
+      prefListeners.add(l);
+      return () => prefListeners.delete(l);
+    },
+    readPref,
+    () => "gpu" as DevicePreference
+  );
+  const set = (v: DevicePreference) => {
+    try {
+      localStorage.setItem(PREF_KEY, v);
+    } catch {
+      /* private mode: the choice still applies to this analysis */
+    }
+    prefListeners.forEach((l) => l());
+  };
+  return [pref, set];
 }

@@ -7,10 +7,11 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useCapabilities } from "@/components/shell/CapabilityCard";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { Badge, Button, Card, CardHeader, Magnet, Notice, ProgressBar } from "@/components/ui/primitives";
+import { Badge, Button, Card, CardHeader, Magnet, Notice, ProgressBar, Segmented } from "@/components/ui/primitives";
+import { describeAccelerator, useAccelerator, useDevicePreference } from "@/lib/accelerator";
 import { formatBytes } from "@/lib/format";
 import { useStryde } from "@/lib/store";
-import type { AnalysisError, AnalysisMode } from "@/lib/types";
+import type { AnalysisError, AnalysisMode, DevicePreference } from "@/lib/types";
 import { ACCEPT_ATTR, createVideoThumbnail, inspectVideo, VideoValidationError } from "@/lib/video";
 
 const TEAM_A_DEFAULT = "#d3263a";
@@ -133,6 +134,11 @@ export default function AnalyzePage() {
   const [teamAColor, setTeamAColor] = useState<string | undefined>();
   const [teamBColor, setTeamBColor] = useState<string | undefined>();
   const [mode, setMode] = useState<AnalysisMode>("faster");
+  const accel = useAccelerator();
+  const accelDesc = describeAccelerator(accel);
+  const [devicePref, setDevicePref] = useDevicePreference();
+  // with no usable GPU in this browser the only real choice is the CPU
+  const device: DevicePreference = accel.kind === "cpu" ? "cpu" : devicePref;
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<AnalysisError | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -176,6 +182,7 @@ export default function AnalyzePage() {
           teamAColor,
           teamBColor,
           mode,
+          device,
         },
         thumbnail,
         warnings
@@ -195,7 +202,7 @@ export default function AnalyzePage() {
           suggestedAction: "Try an MP4 (H.264) clip.",
         });
     }
-  }, [selectedFile, starting, createMatch, startAnalysis, router, teamAName, teamBName, teamAColor, teamBColor, mode]);
+  }, [selectedFile, starting, createMatch, startAnalysis, router, teamAName, teamBName, teamAColor, teamBColor, mode, device]);
 
   const selectFile = useCallback(async (f: File | undefined) => {
     if (!f) return;
@@ -465,6 +472,51 @@ export default function AnalyzePage() {
                   );
                 })}
               </fieldset>
+              <div className="mx-5 mb-5 rounded-xl border border-line px-4 py-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p id="device-label" className="text-sm font-semibold text-ink">
+                      Run on
+                    </p>
+                    <p className="mt-0.5 text-xs text-ink-2">
+                      {accel.kind === "checking"
+                        ? "Checking this device…"
+                        : device === "gpu"
+                          ? `${accelDesc?.long}. Falls back to the CPU if the GPU fails.`
+                          : accel.kind === "cpu"
+                            ? "No GPU is available to this browser, so analysis runs on the CPU."
+                            : "Processor only (WebAssembly). Slower, but useful to compare or if the GPU misbehaves."}
+                    </p>
+                  </div>
+                  <Segmented<DevicePreference>
+                    label="Run analysis on"
+                    size="sm"
+                    value={device}
+                    onChange={setDevicePref}
+                    options={[
+                      {
+                        value: "gpu",
+                        label: (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Zap className="size-3.5" aria-hidden /> GPU
+                          </span>
+                        ),
+                        disabled: accel.kind === "cpu" || starting,
+                        title: accel.kind === "cpu" ? "No GPU is available to this browser" : undefined,
+                      },
+                      {
+                        value: "cpu",
+                        label: (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Cpu className="size-3.5" aria-hidden /> CPU
+                          </span>
+                        ),
+                        disabled: starting,
+                      },
+                    ]}
+                  />
+                </div>
+              </div>
               {mode === "detailed" && caps.webgpu === false && (
                 <Notice tone="warn" className="mx-5 mb-5">
                   This browser can&apos;t use a graphics chip, so More detailed falls back to the small model at 8 frames a second on the processor. Expect it to take
@@ -493,6 +545,12 @@ export default function AnalyzePage() {
                 <div className="flex justify-between gap-4">
                   <dt className="text-ink-2">Mode</dt>
                   <dd className="font-medium text-ink">{modeInfo.t}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-ink-2">Runs on</dt>
+                  <dd className="font-medium text-ink">
+                    {accel.kind === "checking" ? "Checking…" : device === "cpu" ? "CPU" : `GPU${accel.api ? ` (${accel.api})` : ""}`}
+                  </dd>
                 </div>
               </dl>
               <Button size="lg" className="mt-5 w-full" onClick={start} disabled={!selectedFile || sampleLoading} loading={starting}>

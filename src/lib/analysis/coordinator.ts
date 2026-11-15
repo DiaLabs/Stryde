@@ -226,12 +226,17 @@ export class AnalysisCoordinator {
     if (this.cancelled) return;
 
     // --- model / backend
-    const gpu = await detectWebGpu();
+    const cpuOnly = this.config.device === "cpu";
+    const gpu = cpuOnly ? false : await detectWebGpu();
     if (this.cancelled) return;
     let profile = this.config.mode === "detailed" ? MODE_PROFILES.detailed : MODE_PROFILES.faster;
     if (this.config.mode === "detailed" && !gpu) {
       profile = MODE_PROFILES.detailed_cpu;
-      adaptations.push("WebGPU unavailable: More Detailed mode uses the smaller model at 8 samples/s on the CPU backend.");
+      adaptations.push(
+        cpuOnly
+          ? "Running on the CPU as chosen: More detailed uses the smaller model at 8 samples/s."
+          : "WebGPU unavailable: More detailed uses the smaller model at 8 samples/s."
+      );
     }
     let provider: ExecutionProvider;
     try {
@@ -240,7 +245,8 @@ export class AnalysisCoordinator {
         // In Detailed mode, never build the large model on the CPU: fail fast and drop to the
         // smaller model instead.
         // GPU first: WebGPU when available, else the worker tries WebGL before the processor
-        const r = await this.initWorker(profile, gpu ? "webgpu" : "webgl", modelBuffer, !isDetailedGpu);
+        // ("wasm" = the processor only, when the user chose the CPU)
+        const r = await this.initWorker(profile, cpuOnly ? "wasm" : gpu ? "webgpu" : "webgl", modelBuffer, !isDetailedGpu);
         provider = r.provider;
         warnings.push(...r.warnings);
       } catch (e) {

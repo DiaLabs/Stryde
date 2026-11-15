@@ -136,7 +136,7 @@ export const useStryde = create<StoreState>((set, get) => {
         try {
           const gpu = await detectWebGpu();
           if (!live()) return;
-          const modelBuffer = await ensureModel(modelIdForMode(m.config.mode, gpu));
+          const modelBuffer = await ensureModel(modelIdForMode(m.config.mode, gpu && m.config.device !== "cpu"));
           if (!live()) return;
           const current = get().matches[id];
           if (!current) return finish();

@@ -13,7 +13,11 @@ export interface MatchConfig {
   teamAColor?: string;
   teamBColor?: string;
   mode: AnalysisMode;
+  /** where to run detection: the GPU (falls back to the CPU when none is available) or the CPU only */
+  device?: DevicePreference;
 }
+
+export type DevicePreference = "gpu" | "cpu";
 
 export interface VideoMetadata {
   fileName: string;
