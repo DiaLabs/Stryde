@@ -1,199 +1,212 @@
-import { ArrowRight, Crosshair, Eye, Map, ShieldAlert } from "lucide-react";
+import { Activity, ArrowRight, Crosshair, Flame, Lock, PieChart, Shirt, Upload, Video } from "lucide-react";
 import Link from "next/link";
 import { Logo } from "@/components/brand/Logo";
-import { DetectionDemo } from "@/components/landing/DetectionDemo";
-import { FeatureGrid } from "@/components/landing/FeatureGrid";
-import heroBg from "../../bg.jpg";
+import { LandingHero } from "@/components/landing/LandingHero";
+import { MirrorBar } from "@/components/ui/primitives";
 
-export default function Landing() {
+const BLUE = "#3B82F6";
+const ORANGE = "#F97316";
+
+const FEATURES = [
+  { icon: Crosshair, title: "Player and ball tracking", body: "Every player and the ball detected frame by frame, with temporary track IDs while they stay in view." },
+  { icon: Shirt, title: "Teams split by kit", body: "Kit colours are learned from the clip automatically. Correct them in one click if the light plays tricks." },
+  { icon: PieChart, title: "Possession estimates", body: "Who had the ball, when and for how long, with a timeline you can scrub and every estimate labelled." },
+  { icon: Flame, title: "Heatmaps and territory", body: "Where each team played: occupancy heatmaps, movement, team shape and time spent in each third." },
+  { icon: Video, title: "Annotated playback", body: "Watch the clip with team-coloured tracking, ball trail and a live scorebug layered on top." },
+  { icon: Lock, title: "Private by design", body: "The video is read from your device and analyzed in the browser. Nothing is uploaded, no account needed." },
+];
+
+function SiteHeader() {
   return (
-    <div className="bg-navy-950 text-white">
-      <header className="fixed inset-x-0 top-0 z-40 px-4 pt-4 sm:px-6">
-        <div className="mx-auto flex min-h-16 max-w-5xl items-center justify-between gap-4 rounded-full border border-white/10 bg-navy-950/75 py-3 pr-3 pl-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:min-h-[4.5rem] sm:py-3.5 sm:pr-3.5 sm:pl-6">
-          <Logo mark="image" />
-          <nav aria-label="Main" className="hidden items-center gap-1 text-sm md:flex">
-            <a href="#features" className="rounded-full px-4 py-2.5 text-white/75 hover:bg-white/10 hover:text-white">
-              Features
-            </a>
-            <a href="#how" className="rounded-full px-4 py-2.5 text-white/75 hover:bg-white/10 hover:text-white">
-              How it works
-            </a>
-          </nav>
-          <Link
-            href="/app/analyze"
-            className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-navy-950 hover:bg-brand-hover"
-          >
+    <header className="fixed inset-x-0 top-0 z-40 border-b border-white/[0.06] bg-navy-950/70 backdrop-blur-md">
+      <div className="mx-auto flex h-16 max-w-[1280px] items-center gap-8 px-5 sm:px-8">
+        <Link href="/" aria-label="Stryde home" className="rounded-lg">
+          <Logo />
+        </Link>
+        <nav aria-label="Page" className="hidden md:block">
+          <ul className="flex gap-1 text-sm text-white/70">
+            <li>
+              <a href="#features" className="rounded-md px-3 py-2 hover:text-white">
+                Features
+              </a>
+            </li>
+            <li>
+              <a href="#workflow" className="rounded-md px-3 py-2 hover:text-white">
+                How it works
+              </a>
+            </li>
+            <li>
+              <Link href="/app/help" className="rounded-md px-3 py-2 hover:text-white">
+                Help
+              </Link>
+            </li>
+          </ul>
+        </nav>
+        <div className="ml-auto flex items-center gap-2">
+          <Link href="/app" className="hidden h-9 items-center rounded-lg border border-white/20 px-4 text-sm font-semibold text-white hover:bg-white/10 sm:inline-flex">
+            Open app
+          </Link>
+          <Link href="/app/analyze" className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-semibold text-navy-950 hover:bg-brand-hover">
             Get started
           </Link>
         </div>
-      </header>
+      </div>
+    </header>
+  );
+}
 
-      <section className="relative flex min-h-svh items-center overflow-hidden">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 scale-105 bg-cover bg-center bg-no-repeat opacity-40 blur-md"
-          style={{ backgroundImage: `url(${heroBg.src})` }}
-        />
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,rgba(255,255,255,0.08),transparent_55%)]" />
-        <div className="relative mx-auto flex w-full max-w-[90rem] flex-col items-center justify-center gap-8 px-5 pt-28 pb-16 sm:px-8 lg:flex-row lg:gap-10">
-          <div className="w-full max-w-lg">
-            <h1 className="font-display text-5xl leading-[1.02] font-medium tracking-tight sm:text-6xl 2xl:text-7xl">
-              Every run.
-              <span className="block">Every pass.</span>
-              <span className="mt-1 inline-block border-b-2 border-[#7dffc6] pb-1 italic leading-none">
-                <span className="bg-gradient-to-r from-brand to-[#7dffc6] bg-clip-text text-transparent">Decoded.</span>
-              </span>
-            </h1>
-            <p className="mt-6 text-base leading-relaxed text-white/70 sm:text-lg">
-              Drop in a match clip. Stryde spots every player, splits the teams and turns their movement into heatmaps and possession — without the video
-              ever leaving your device.
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
-                href="/app/analyze"
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-brand px-6 font-semibold text-navy-950 hover:bg-brand-hover"
-              >
-                Analyze a match <ArrowRight className="size-4" />
-              </Link>
-              <Link
-                href="/app"
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-6 font-semibold hover:bg-white/10"
-              >
-                Open workspace
-              </Link>
+function StepCard({ n, title, body, children }: { n: number; title: string; body: string; children: React.ReactNode }) {
+  return (
+    <li className="flex flex-col rounded-2xl border border-line bg-card p-6 shadow-[var(--shadow-card)]">
+      <span className="grid size-8 place-items-center rounded-full bg-navy-950 text-sm font-bold text-white">{n}</span>
+      <h3 className="mt-4 text-lg font-semibold text-ink">{title}</h3>
+      <p className="mt-1.5 text-sm leading-relaxed text-ink-2">{body}</p>
+      <div className="mt-6 flex-1 rounded-xl border border-line-soft bg-page p-4">{children}</div>
+    </li>
+  );
+}
+
+export default function LandingPage() {
+  return (
+    <div className="min-h-dvh bg-page">
+      <a href="#main" className="sr-only z-50 rounded-lg bg-brand px-3 py-2 font-semibold text-navy-950 focus:not-sr-only focus:fixed focus:top-2 focus:left-2">
+        Skip to content
+      </a>
+      <SiteHeader />
+      <main id="main">
+        <LandingHero />
+
+        <section id="features" aria-labelledby="features-title" className="mx-auto max-w-[1280px] scroll-mt-20 px-5 py-20 sm:px-8 lg:py-28">
+          <div className="max-w-2xl">
+            <p className="text-sm font-semibold text-brand-deep">What you get</p>
+            <h2 id="features-title" className="mt-2 text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+              Everything you need to read a match
+            </h2>
+            <p className="mt-3 text-base leading-relaxed text-ink-2">Team-level analysis from a single clip: how each side moved, where they played and who controlled the ball.</p>
+          </div>
+          <ul className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {FEATURES.map((f) => (
+              <li key={f.title} className="rounded-2xl border border-line bg-card p-6 shadow-[var(--shadow-card)]">
+                <span className="grid size-10 place-items-center rounded-xl bg-brand-soft text-brand-deep">
+                  <f.icon className="size-5" aria-hidden />
+                </span>
+                <h3 className="mt-4 text-base font-semibold text-ink">{f.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-ink-2">{f.body}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section id="workflow" aria-labelledby="workflow-title" className="scroll-mt-20 border-y border-line bg-card/60">
+          <div className="mx-auto max-w-[1280px] px-5 py-20 sm:px-8 lg:py-28">
+            <div className="max-w-2xl">
+              <p className="text-sm font-semibold text-brand-deep">How it works</p>
+              <h2 id="workflow-title" className="mt-2 text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+                From clip to insights in three steps
+              </h2>
             </div>
-          </div>
-          <div className="relative w-full max-w-[53rem] shrink-0 lg:max-w-[41.8rem] xl:max-w-[45.6rem]">
-            <DetectionDemo />
-          </div>
-        </div>
-      </section>
-
-      <section id="features" className="scroll-mt-28 bg-page text-ink">
-        <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8">
-          <h2 className="text-3xl font-bold tracking-tight">Everything centered on the video</h2>
-          <p className="mt-2 max-w-2xl text-ink-2">Analytics support the footage instead of replacing it. Team-level insights only — no player identities, rankings or profiles.</p>
-          <FeatureGrid />
-        </div>
-      </section>
-
-      <section id="how" className="scroll-mt-28 bg-card text-ink">
-        <div className="mx-auto grid max-w-7xl gap-10 px-5 py-20 sm:px-8 lg:grid-cols-2">
-          <div>
-            <h2 className="text-3xl font-bold tracking-tight">How it works</h2>
-            <ol className="mt-8 space-y-6">
-              {[
-                ["Set up the match", "Name the teams, optionally pick jersey colors and choose Faster or More Detailed analysis."],
-                ["Choose a clip", "30–60 seconds of soccer footage. Validation runs instantly and analysis starts on its own."],
-                ["Browser inference", "A YOLO11 detector runs on WebGPU (or the CPU), a tracker links detections, and team, possession and event estimators run on top."],
-                ["Explore the dashboard", "Play, pause, seek and slow down the annotated video while the pitch, heatmaps and stats follow along."],
-              ].map(([t, d], i) => (
-                <li key={t} className="flex gap-4">
-                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-navy-950 font-bold text-brand">{i + 1}</span>
-                  <div>
-                    <p className="font-semibold">{t}</p>
-                    <p className="text-sm text-ink-2">{d}</p>
-                  </div>
-                </li>
-              ))}
+            <ol className="mt-12 grid gap-4 lg:grid-cols-3">
+              <StepCard n={1} title="Upload your clip" body="Drop in an MP4, MOV or WebM from a phone, club camera or broadcast. Name the teams if you like.">
+                <div className="grid place-items-center rounded-lg border-2 border-dashed border-line py-6 text-center">
+                  <span className="grid size-9 place-items-center rounded-full bg-brand-soft text-brand-deep">
+                    <Upload className="size-4" aria-hidden />
+                  </span>
+                  <p className="mt-2 text-xs font-medium text-ink">Drag and drop your video</p>
+                  <p className="text-[11px] text-ink-2">MP4, MOV, WebM up to 5 minutes</p>
+                </div>
+              </StepCard>
+              <StepCard n={2} title="Let it analyze" body="Detection, tracking and team assignment run in your browser. You see a live preview while it works.">
+                <ul className="space-y-2.5 text-xs">
+                  {[
+                    ["Detecting players and ball", 1],
+                    ["Tracking and assigning teams", 0.64],
+                    ["Calculating team analytics", 0],
+                  ].map(([label, v]) => (
+                    <li key={label as string}>
+                      <div className="flex items-center justify-between text-ink">
+                        <span>{label}</span>
+                        <span className="text-ink-2 tabular">{v === 1 ? "Done" : v === 0 ? "Pending" : `${Math.round((v as number) * 100)}%`}</span>
+                      </div>
+                      <div className="mt-1 h-1 rounded-full bg-line-soft">
+                        <div className="h-full rounded-full bg-brand" style={{ width: `${(v as number) * 100}%` }} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </StepCard>
+              <StepCard n={3} title="Review the match" body="Annotated playback, team stats side by side, a synced 2D pitch with heatmaps and a possession timeline.">
+                <div className="flex items-center justify-between text-xs font-semibold text-ink">
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full" style={{ background: BLUE }} aria-hidden />
+                    Blue
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    White
+                    <span className="size-2 rounded-full" style={{ background: ORANGE }} aria-hidden />
+                  </span>
+                </div>
+                <MirrorBar label="Possession" a={58} b={42} max={100} unit="%" colorA={BLUE} colorB={ORANGE} estimated />
+                <MirrorBar label="Team width" a={41} b={36} unit="m" colorA={BLUE} colorB={ORANGE} />
+                <p className="mt-1 text-[11px] text-ink-2">Example values</p>
+              </StepCard>
             </ol>
           </div>
-          <div className="space-y-4 rounded-2xl bg-navy-950 p-8 text-white">
-            <h3 className="flex items-center gap-2 text-xl font-bold">
-              <ShieldAlert className="size-5 text-brand" /> Built to be honest
-            </h3>
-            <p className="text-white/75">
-              Computer vision on ordinary footage is imperfect. Stryde labels every estimate, shows unknown periods instead of guessing, and hides metrics
-              the footage cannot support.
-            </p>
-            <ul className="space-y-2 text-sm text-white/80">
-              <li className="flex gap-2">
-                <Eye className="mt-0.5 size-4 shrink-0 text-brand" /> Coverage, calibration and confidence indicators on every result.
+        </section>
+
+        <section aria-labelledby="cta-title" className="mx-auto max-w-[1280px] px-5 py-20 sm:px-8 lg:py-24">
+          <div className="relative overflow-hidden rounded-3xl bg-navy-950 px-6 py-12 text-white sm:px-12 sm:py-16">
+            <svg className="pointer-events-none absolute -top-24 -right-24 size-[420px] text-white/[0.05]" viewBox="0 0 200 200" aria-hidden>
+              <circle cx="100" cy="100" r="60" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              <line x1="100" y1="0" x2="100" y2="200" stroke="currentColor" strokeWidth="1.5" />
+              <circle cx="100" cy="100" r="3" fill="currentColor" />
+            </svg>
+            <div className="relative flex flex-wrap items-end justify-between gap-8">
+              <div className="max-w-xl">
+                <p className="flex items-center gap-2 text-sm font-semibold text-brand">
+                  <Activity className="size-4" aria-hidden /> No sign-up, no upload
+                </p>
+                <h2 id="cta-title" className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+                  Analyze your first match today
+                </h2>
+                <p className="mt-3 text-base leading-relaxed text-white/70">Bring a clip from your last game, or try the built-in sample match.</p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Link href="/app/analyze" className="inline-flex h-12 items-center gap-2 rounded-lg bg-brand px-6 text-[15px] font-semibold text-navy-950 hover:bg-brand-hover">
+                  Get started <ArrowRight className="size-4" aria-hidden />
+                </Link>
+                <Link href="/app" className="inline-flex h-12 items-center rounded-lg border border-white/20 px-5 text-[15px] font-semibold hover:bg-white/10">
+                  Open the app
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="bg-navy-950 text-white/60">
+        <div className="mx-auto flex max-w-[1280px] flex-wrap items-center justify-between gap-6 px-5 py-10 text-sm sm:px-8">
+          <Logo />
+          <nav aria-label="Footer">
+            <ul className="flex flex-wrap gap-x-6 gap-y-2">
+              <li>
+                <Link href="/app" className="hover:text-white">
+                  Open the app
+                </Link>
               </li>
-              <li className="flex gap-2">
-                <Map className="mt-0.5 size-4 shrink-0 text-brand" /> Meters and speeds only after pitch calibration.
+              <li>
+                <Link href="/app/analyze" className="hover:text-white">
+                  Upload a match
+                </Link>
               </li>
-              <li className="flex gap-2">
-                <Crosshair className="mt-0.5 size-4 shrink-0 text-brand" /> Shots and goals are presented as possible events, never facts.
+              <li>
+                <Link href="/app/help" className="hover:text-white">
+                  Help
+                </Link>
               </li>
             </ul>
-            <Link href="/app/help" className="inline-flex items-center gap-1 text-sm font-semibold text-brand hover:underline">
-              Read the limitations <ArrowRight className="size-4" />
-            </Link>
-          </div>
+          </nav>
+          <p>© 2026 DiaLabs</p>
         </div>
-      </section>
-
-      <footer className="relative overflow-hidden border-t border-line bg-[#f6f4ef] text-ink">
-        <p
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[22vw] leading-none font-extrabold tracking-tight text-ink/[0.05] select-none"
-        >
-          STRYDE
-        </p>
-        <div className="relative mx-auto grid max-w-6xl gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[1.1fr_1.6fr] lg:py-20">
-          <div>
-            <Logo light={false} mark="image" />
-            <p className="mt-3 max-w-xs text-sm text-ink-2">Football footage to team insights</p>
-            <p className="mt-6 text-sm text-ink-2">Stryde by DiaLabs</p>
-          </div>
-          <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
-            <div>
-              <p className="text-[11px] font-semibold tracking-[0.16em] text-ink-2 uppercase">Product</p>
-              <ul className="mt-4 space-y-2.5 text-sm">
-                <li>
-                  <a href="#features" className="hover:text-ink-2">
-                    Features
-                  </a>
-                </li>
-                <li>
-                  <a href="#how" className="hover:text-ink-2">
-                    How it works
-                  </a>
-                </li>
-                <li>
-                  <Link href="/app/help" className="hover:text-ink-2">
-                    Limitations
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/app/analyze" className="hover:text-ink-2">
-                    Analyze a match
-                  </Link>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold tracking-[0.16em] text-ink-2 uppercase">App</p>
-              <ul className="mt-4 space-y-2.5 text-sm">
-                <li>
-                  <Link href="/app" className="hover:text-ink-2">
-                    Workspace
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/app/analyze" className="hover:text-ink-2">
-                    Get started
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/app/help" className="hover:text-ink-2">
-                    Help
-                  </Link>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold tracking-[0.16em] text-ink-2 uppercase">Notes</p>
-              <ul className="mt-4 space-y-2.5 text-sm text-ink-2">
-                <li>Football (soccer) only</li>
-                <li>Results are estimates</li>
-                <li>Video stays on device</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-        <p className="relative pb-8 text-center text-xs text-ink-2">© 2026 DiaLabs. All rights reserved.</p>
       </footer>
     </div>
   );
