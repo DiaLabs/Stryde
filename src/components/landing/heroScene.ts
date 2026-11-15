@@ -61,7 +61,8 @@ export interface Camera {
 /**
  * tilt 0 = broadcast camera on the halfway line, 1 = straight down. `reserveLeft` is the
  * fraction of the width covered by text on wide screens; the top-down pitch is fitted into the
- * remaining space so the captions never sit on top of it.
+ * remaining space so the captions never sit on top of it. Without it (narrow screens, captions
+ * at the bottom) the pitch is lifted into the upper part of the frame.
  */
 export function makeCamera(tilt: number, w: number, h: number, focusX: number, reserveLeft = 0): Camera {
   const e = easeInOut(clamp01(tilt));
@@ -79,7 +80,7 @@ export function makeCamera(tilt: number, w: number, h: number, focusX: number, r
   const s = Math.sin(theta);
   const c = Math.cos(theta);
   const cxTop = w - usableW / 2 - (reserveLeft > 0 ? 16 : 0);
-  return { pos: [tx, d * s, tz - d * c], fs: s, fc: c, f: h / 2 / tanHalf, cx: lerp(w / 2, cxTop, e), cy: h / 2 + lerp(0, 24, e) };
+  return { pos: [tx, d * s, tz - d * c], fs: s, fc: c, f: h / 2 / tanHalf, cx: lerp(w / 2, cxTop, e), cy: h / 2 + lerp(0, reserveLeft > 0 ? 24 : -h * 0.17, e) };
 }
 
 export function project(cam: Camera, x: number, y: number, z: number, out: { x: number; y: number; k: number }): boolean {
