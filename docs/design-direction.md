@@ -60,5 +60,8 @@ inset, and a translucent navy possession panel. Dashed = estimated.
 - Estimates are labelled (badge, dashed underline, hatched bar or dashed stroke).
 - Visible keyboard focus (green ring), 360 px phone width without horizontal scroll,
   `prefers-reduced-motion` respected.
-- Motion: one orchestrated landing hero (scroll-driven); in the app only motion that answers an
-  action (thumbnail → video morph, tab crossfade, popovers).
+- Motion: one orchestrated landing entrance (pill nav slides in, hero content rises in sequence,
+  slow drift on the stadium photo); the pill nav tightens on scroll and its highlight follows hover
+  and the section in view. No simulated players or fake footage on the landing page. In the app
+  only motion that answers an action (thumbnail → video morph, tab crossfade, popovers).
+- Footer credits DiaLabs, linked to https://dialabs.tech.

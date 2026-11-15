@@ -160,33 +160,53 @@ input[type="range"].seek::-moz-range-thumb {
   animation: indeterminate 1.4s ease-in-out infinite;
 }
 
-/*
- * Landing hero scroll progress. The hero section exposes a view timeline; while it is pinned
- * the stage animates the registered property --p from 0 to 1 on the compositor (no scroll
- * listeners). LandingHero reads --p for the canvas, or writes it itself where unsupported.
- */
-@property --p {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0;
-}
-@keyframes hero-progress {
+/* Landing motion: one orchestrated entrance (nav slides in, hero content rises in sequence). */
+@keyframes nav-in {
   from {
-    --p: 0;
+    opacity: 0;
+    transform: translateY(-14px) scale(0.98);
+  }
+}
+.nav-in {
+  animation: nav-in 700ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+.hero-rise {
+  animation: hero-rise 800ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+@keyframes hero-bar {
+  from {
+    transform: scaleX(0);
+  }
+}
+.hero-bar {
+  transform-origin: left;
+  animation: hero-bar 1100ms cubic-bezier(0.2, 0, 0, 1) 600ms both;
+}
+@keyframes hero-heat {
+  from {
+    opacity: 0;
+  }
+}
+.hero-heat {
+  animation: hero-heat 1400ms ease-out 700ms both;
+}
+/* slow drift on the stadium photo */
+@keyframes hero-zoom {
+  from {
+    transform: scale(1.08);
   }
   to {
-    --p: 1;
+    transform: scale(1);
   }
 }
-@supports (animation-timeline: view()) {
-  .hero {
-    view-timeline: --hero block;
-  }
-  .hero-stage {
-    animation: hero-progress linear both;
-    animation-timeline: --hero;
-    animation-range: contain 0% contain 100%;
-  }
+.hero-zoom {
+  animation: hero-zoom 14s cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 /* View transitions (React <ViewTransition>): quick crossfades and the thumbnail → video morph. */

@@ -2,6 +2,7 @@ import { Activity, ArrowRight, Crosshair, Flame, Lock, PieChart, Shirt, Upload, 
 import Link from "next/link";
 import { Logo } from "@/components/brand/Logo";
 import { LandingHero } from "@/components/landing/LandingHero";
+import { SiteNav } from "@/components/landing/SiteNav";
 import { MirrorBar } from "@/components/ui/primitives";
 
 const BLUE = "#3B82F6";
@@ -15,45 +16,6 @@ const FEATURES = [
   { icon: Video, title: "Annotated playback", body: "Watch the clip with team-coloured tracking, ball trail and a live scorebug layered on top." },
   { icon: Lock, title: "Private by design", body: "The video is read from your device and analyzed in the browser. Nothing is uploaded, no account needed." },
 ];
-
-function SiteHeader() {
-  return (
-    <header className="fixed inset-x-0 top-0 z-40 border-b border-white/[0.06] bg-navy-950/70 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-[1280px] items-center gap-8 px-5 sm:px-8">
-        <Link href="/" aria-label="Stryde home" className="rounded-lg">
-          <Logo />
-        </Link>
-        <nav aria-label="Page" className="hidden md:block">
-          <ul className="flex gap-1 text-sm text-white/70">
-            <li>
-              <a href="#features" className="rounded-md px-3 py-2 hover:text-white">
-                Features
-              </a>
-            </li>
-            <li>
-              <a href="#workflow" className="rounded-md px-3 py-2 hover:text-white">
-                How it works
-              </a>
-            </li>
-            <li>
-              <Link href="/app/help" className="rounded-md px-3 py-2 hover:text-white">
-                Help
-              </Link>
-            </li>
-          </ul>
-        </nav>
-        <div className="ml-auto flex items-center gap-2">
-          <Link href="/app" className="hidden h-9 items-center rounded-lg border border-white/20 px-4 text-sm font-semibold text-white hover:bg-white/10 sm:inline-flex">
-            Open app
-          </Link>
-          <Link href="/app/analyze" className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-semibold text-navy-950 hover:bg-brand-hover">
-            Get started
-          </Link>
-        </div>
-      </div>
-    </header>
-  );
-}
 
 function StepCard({ n, title, body, children }: { n: number; title: string; body: string; children: React.ReactNode }) {
   return (
@@ -72,7 +34,7 @@ export default function LandingPage() {
       <a href="#main" className="sr-only z-50 rounded-lg bg-brand px-3 py-2 font-semibold text-navy-950 focus:not-sr-only focus:fixed focus:top-2 focus:left-2">
         Skip to content
       </a>
-      <SiteHeader />
+      <SiteNav />
       <main id="main">
         <LandingHero />
 
@@ -205,7 +167,13 @@ export default function LandingPage() {
               </li>
             </ul>
           </nav>
-          <p>© 2026 DiaLabs</p>
+          <p>
+            Built by{" "}
+            <a href="https://dialabs.tech" target="_blank" rel="noopener noreferrer" className="font-semibold text-white/85 underline decoration-white/30 underline-offset-4 transition-colors hover:text-brand hover:decoration-brand">
+              DiaLabs
+            </a>{" "}
+            © 2026
+          </p>
         </div>
       </footer>
     </div>
