@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Badge, Button, Notice, ProgressBar, TeamChip } from "@/components/ui/primitives";
 import { STAGES } from "@/lib/analysis/coordinator";
 import { formatBytes, formatDuration } from "@/lib/format";
-import { getCoordinator, useStryde, type MatchEntry } from "@/lib/store";
+import { attachPreviewCanvas, useStryde, type MatchEntry } from "@/lib/store";
 
 export function ProcessingView({ entry, title }: { entry: MatchEntry; title?: string }) {
   const cancel = useStryde((s) => s.cancelAnalysis);
@@ -19,11 +19,8 @@ export function ProcessingView({ entry, title }: { entry: MatchEntry; title?: st
   const s = entry.session;
 
   useEffect(() => {
-    const c = getCoordinator(entry.id);
-    if (c && previewRef.current) c.previewCanvas = previewRef.current;
-    return () => {
-      if (c) c.previewCanvas = null;
-    };
+    if (!previewRef.current) return;
+    return attachPreviewCanvas(entry.id, previewRef.current);
   }, [entry.id]);
 
   useEffect(() => {

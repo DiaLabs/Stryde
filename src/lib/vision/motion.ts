@@ -87,21 +87,40 @@ export function estimateMotion(prev: Thumb, curr: Thumb): MotionEstimate {
       if (c < best.cost) best = { dx, dy, cost: c };
     }
   }
-  // refine
+  // refine at full resolution around the coarse winner (costs must share one sampling step)
   const coarse = best;
+  best = { dx: coarse.dx, dy: coarse.dy, cost: sad(curr.grad, prev.grad, W, H, coarse.dx, coarse.dy, 1, margin) };
   for (let dy = coarse.dy - 2; dy <= coarse.dy + 2; dy++) {
     for (let dx = coarse.dx - 2; dx <= coarse.dx + 2; dx++) {
+      if (dx === coarse.dx && dy === coarse.dy) continue;
       const c = sad(curr.grad, prev.grad, W, H, dx, dy, 1, margin);
-      if (c < best.cost || (dx === coarse.dx && dy === coarse.dy)) {
-        if (c <= best.cost) best = { dx, dy, cost: c };
-      }
+      if (c < best.cost) best = { dx, dy, cost: c };
     }
   }
+  // Sub-pixel refinement: fit a parabola through the cost at ±1 px on each axis. Without it,
+  // slow pans under half a pixel per sample read as zero and the camera offset drifts.
+  const subpixel = (cm: number, c0: number, cp: number) => {
+    const denom = cm - 2 * c0 + cp;
+    if (!Number.isFinite(denom) || denom <= 1e-9) return 0;
+    return Math.max(-0.5, Math.min(0.5, (cm - cp) / (2 * denom)));
+  };
+  const fx = subpixel(
+    sad(curr.grad, prev.grad, W, H, best.dx - 1, best.dy, 1, margin),
+    best.cost,
+    sad(curr.grad, prev.grad, W, H, best.dx + 1, best.dy, 1, margin)
+  );
+  const fy = subpixel(
+    sad(curr.grad, prev.grad, W, H, best.dx, best.dy - 1, 1, margin),
+    best.cost,
+    sad(curr.grad, prev.grad, W, H, best.dx, best.dy + 1, 1, margin)
+  );
   const grayResidual = sad(curr.gray, prev.gray, W, H, best.dx, best.dy, 2, margin);
-  const sceneCut = grayResidual > 0.16 || Math.abs(best.dx) >= R - 1;
+  // A cut is decided by appearance only. A fast pan that hits the search limit is still
+  // camera motion (clamped), not a cut — treating it as one used to wipe every track.
+  const sceneCut = grayResidual > 0.16;
   return {
-    dx: sceneCut ? 0 : best.dx / W,
-    dy: sceneCut ? 0 : best.dy / H,
+    dx: sceneCut ? 0 : (best.dx + fx) / W,
+    dy: sceneCut ? 0 : (best.dy + fy) / H,
     sceneCut,
     residual: grayResidual,
   };

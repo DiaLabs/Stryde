@@ -25,6 +25,8 @@ let inputCanvas: OffscreenCanvas | null = null;
 let inputCtx: OffscreenCanvasRenderingContext2D | null = null;
 let frameCanvas: OffscreenCanvas | null = null;
 let frameCtx: OffscreenCanvasRenderingContext2D | null = null;
+// Reused across frames; safe because frames are processed strictly one at a time.
+let tensorBuf: Float32Array | null = null;
 
 const post = (msg: WorkerResponse) => self.postMessage(msg);
 
@@ -87,19 +89,32 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
       graphOptimizationLevel: "all",
     });
     // warm-up run validates operator support on this provider
-    const size = s.inputSize;
-    const dummy = new ort!.Tensor("float32", new Float32Array(3 * size * size), [1, 3, size, size]);
-    const out = await sess.run({ [sess.inputNames[0]]: dummy });
-    for (const k of Object.keys(out)) out[k].dispose?.();
+    try {
+      const size = s.inputSize;
+      const dummy = new ort!.Tensor("float32", new Float32Array(3 * size * size), [1, 3, size, size]);
+      const out = await sess.run({ [sess.inputNames[0]]: dummy });
+      for (const k of Object.keys(out)) out[k].dispose?.();
+    } catch (e) {
+      // release GPU memory held by the failed session before falling back
+      await sess.release().catch(() => undefined);
+      throw e;
+    }
     return sess;
   };
 
+  await session?.release().catch(() => undefined);
   session = null;
+  tensorBuf = null;
   if (s.preferredProvider === "webgpu" && (await hasWebGpu())) {
     try {
       session = await tryCreate("webgpu");
       provider = "webgpu";
     } catch (e) {
+      if (s.allowWasmFallback === false) {
+        throw Object.assign(new Error(`WebGPU initialization failed (${String((e as Error).message ?? e).slice(0, 120)})`), {
+          code: "webgpu_failed",
+        });
+      }
       warnings.push(`WebGPU initialization failed (${String((e as Error).message ?? e).slice(0, 120)}); using WebAssembly (CPU), which is slower.`);
     }
   } else if (s.preferredProvider === "webgpu") {
@@ -148,7 +163,8 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   inputCtx.drawImage(bitmap, lb.padX, lb.padY, Math.round(W * lb.scale), Math.round(H * lb.scale));
   bitmap.close();
   const rgba = inputCtx.getImageData(0, 0, size, size).data;
-  const tensor = new ort.Tensor("float32", toTensorData(rgba, size), [1, 3, size, size]);
+  tensorBuf = toTensorData(rgba, size, tensorBuf ?? undefined);
+  const tensor = new ort.Tensor("float32", tensorBuf, [1, 3, size, size]);
 
   const t0 = performance.now();
   const outputs = await session.run({ [session.inputNames[0]]: tensor });

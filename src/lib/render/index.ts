@@ -1,3 +1,4 @@
+import { sampleDurations } from "../analysis/possession";
 import type { AnalysisResult, BallObservation, BoundingBox, FrameSummary, MatchEvent, PossessionSample, TeamId } from "../types";
 
 export interface RenderPlayer {
@@ -57,15 +58,18 @@ export function buildRenderIndex(result: AnalysisResult): RenderIndex {
     if (i !== undefined) ball[i] = b;
   }
   const interval = 1 / result.coverage.sampleFps;
+  // same duration rule as the summary percentages, so the live counter ends where the summary says
+  const durations = sampleDurations(
+    result.possessionTimeline.map((p) => p.timestampSeconds),
+    interval * 2.5
+  );
   const cumA: number[] = [];
   const cumB: number[] = [];
   let a = 0;
   let bb = 0;
   result.possessionTimeline.forEach((p, i) => {
-    const dt = i > 0 ? Math.min(interval * 2.5, p.timestampSeconds - result.possessionTimeline[i - 1].timestampSeconds) : 0;
-    const prev = i > 0 ? result.possessionTimeline[i - 1].teamId : "unknown";
-    if (prev === "team_a") a += dt;
-    if (prev === "team_b") bb += dt;
+    if (p.teamId === "team_a") a += durations[i];
+    if (p.teamId === "team_b") bb += durations[i];
     cumA.push(a);
     cumB.push(bb);
   });

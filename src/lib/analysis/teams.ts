@@ -97,14 +97,17 @@ function clusterCount(labels: number[], cluster: number): number {
 /** Drop tiny clusters (refs, subs) that would otherwise become a fake "team". */
 function dropMinorityClusters(samples: Sample[]): Sample[] {
   if (samples.length < 4) return samples;
-  let { labels } = weightedKMeans2(samples);
+  const { labels } = weightedKMeans2(samples);
   const w0 = clusterWeight(samples, labels, 0);
   const w1 = clusterWeight(samples, labels, 1);
   const total = w0 + w1;
   const minority = w0 <= w1 ? 0 : 1;
   const minW = Math.min(w0, w1);
   const minCount = clusterCount(labels, minority);
-  if (minW / total < 0.15 || minCount <= 2) {
+  // a 2-track cluster is only noise (refs, keepers) when there are plenty of other tracks;
+  // in short or zoomed clips it can be a whole team
+  const tinyCluster = minCount <= 1 || (minCount <= 2 && samples.length >= 8);
+  if (minW / total < 0.15 || tinyCluster) {
     return samples.filter((_, i) => labels[i] !== minority);
   }
   return samples;
@@ -131,8 +134,15 @@ export function estimateTeamColors(tracks: ObjectTrack[]): TeamColorModel | null
   if (items.length < 4) items = trackSamples(tracks, 1);
   if (items.length < 2) return null;
 
-  let samples = items.map((i) => i.sample).filter((s) => !isLikelyOfficialColor(s.color));
-  if (samples.length < 2) samples = items.map((i) => i.sample);
+  // Referee-like colours (yellow, orange, pink) are only discarded when they are a small share
+  // of the evidence; a whole team in yellow must not be filtered out.
+  const all = items.map((i) => i.sample);
+  const official = all.filter((s) => isLikelyOfficialColor(s.color));
+  const officialWeight = official.reduce((w, s) => w + s.weight, 0);
+  const totalWeight = all.reduce((w, s) => w + s.weight, 0);
+  const officialIsTeam = official.length >= 3 && officialWeight / totalWeight >= 0.25;
+  let samples = officialIsTeam ? all : all.filter((s) => !isLikelyOfficialColor(s.color));
+  if (samples.length < 2) samples = all;
   samples = dropMinorityClusters(samples);
   if (samples.length < 2) return null;
 
@@ -185,6 +195,9 @@ export function userColorModel(teamAHex: string, teamBHex: string, estimated: Te
 export function classifyTracks(tracks: ObjectTrack[], model: TeamColorModel): void {
   const tolA = Math.max(20, 2.6 * model.spreadA);
   const tolB = Math.max(20, 2.6 * model.spreadB);
+  // if a team itself wears a referee-like colour, matching players belong to that team
+  const teamAOfficialLike = isLikelyOfficialColor(model.teamA);
+  const teamBOfficialLike = isLikelyOfficialColor(model.teamB);
   for (const t of tracks) {
     if (t.objectType !== "player") continue;
     if (!t.jerseyColor) {
@@ -192,14 +205,15 @@ export function classifyTracks(tracks: ObjectTrack[], model: TeamColorModel): vo
       t.teamConfidence = 0;
       continue;
     }
-    if (isLikelyOfficialColor(t.jerseyColor)) {
+    const dA = deltaE(t.jerseyColor, model.teamA);
+    const dB = deltaE(t.jerseyColor, model.teamB);
+    const nearest: TeamId = dA <= dB ? "team_a" : "team_b";
+    const nearestOfficialLike = nearest === "team_a" ? teamAOfficialLike : teamBOfficialLike;
+    if (isLikelyOfficialColor(t.jerseyColor) && !nearestOfficialLike) {
       t.teamId = "unknown";
       t.teamConfidence = 0;
       continue;
     }
-    const dA = deltaE(t.jerseyColor, model.teamA);
-    const dB = deltaE(t.jerseyColor, model.teamB);
-    const nearest: TeamId = dA <= dB ? "team_a" : "team_b";
     const dNear = Math.min(dA, dB);
     const dFar = Math.max(dA, dB);
     const tol = nearest === "team_a" ? tolA : tolB;

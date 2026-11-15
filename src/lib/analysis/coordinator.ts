@@ -66,7 +66,12 @@ export interface CoordinatorCallbacks {
   onProgress: (s: AnalysisSession, preview?: { record: WorkerFrameRecord }) => void;
   onComplete: (raw: RawAnalysis) => void;
   onError: (e: AnalysisError, partial?: RawAnalysis) => void;
+  /** Canvas that should receive a live preview of the frame being analyzed, if any. */
+  getPreviewCanvas?: () => HTMLCanvasElement | null;
 }
+
+/** Give up on a clip after this many frames in a row fail to seek or decode. */
+const MAX_CONSECUTIVE_DECODE_FAILURES = 8;
 
 /**
  * Main-thread analysis coordinator: seeks a hidden <video> to sampled timestamps,
@@ -83,7 +88,6 @@ export class AnalysisCoordinator {
   private pending = new Map<number, { resolve: (r: WorkerFrameRecord) => void; reject: (e: AnalysisError) => void }>();
   private readyWaiter: { resolve: (p: { provider: ExecutionProvider; warnings: string[] }) => void; reject: (e: AnalysisError) => void } | null =
     null;
-  previewCanvas: HTMLCanvasElement | null = null;
 
   constructor(
     private sessionId: string,
@@ -106,6 +110,8 @@ export class AnalysisCoordinator {
   }
 
   private update(patch: Partial<AnalysisSession>, preview?: { record: WorkerFrameRecord }) {
+    // once cancelled, only the cancellation itself may be reported
+    if (this.cancelled && patch.status !== "cancelled") return;
     this.session = { ...this.session, ...patch };
     this.cb.onProgress(this.session, preview);
   }
@@ -143,7 +149,8 @@ export class AnalysisCoordinator {
     return w;
   }
 
-  private async initWorker(profile: ModeProfile, preferred: ExecutionProvider, modelBuffer: ArrayBuffer) {
+  private async initWorker(profile: ModeProfile, preferred: ExecutionProvider, modelBuffer: ArrayBuffer, allowWasmFallback = true) {
+    if (this.cancelled) throw toError("cancelled", "Cancelled");
     this.worker?.terminate();
     this.worker = this.spawnWorker();
     const settings: DetectorSettings = {
@@ -153,6 +160,7 @@ export class AnalysisCoordinator {
       ballThreshold: profile.sampleFps >= 8 ? 0.06 : 0.075,
       iouThreshold: 0.5,
       preferredProvider: preferred,
+      allowWasmFallback,
     };
     const ready = new Promise<{ provider: ExecutionProvider; warnings: string[] }>((resolve, reject) => {
       this.readyWaiter = { resolve, reject };
@@ -212,8 +220,11 @@ export class AnalysisCoordinator {
       return this.fail(toError("decode_failed", `The video could not be decoded: ${String((e as Error).message)}`));
     }
 
+    if (this.cancelled) return;
+
     // --- model / backend
     const gpu = await detectWebGpu();
+    if (this.cancelled) return;
     let profile = this.config.mode === "detailed" ? MODE_PROFILES.detailed : MODE_PROFILES.faster;
     if (this.config.mode === "detailed" && !gpu) {
       profile = MODE_PROFILES.detailed_cpu;
@@ -221,15 +232,21 @@ export class AnalysisCoordinator {
     }
     let provider: ExecutionProvider;
     try {
-      const r = await this.initWorker(profile, gpu ? "webgpu" : "wasm", modelBuffer);
-      provider = r.provider;
-      warnings.push(...r.warnings);
-      if (provider === "wasm" && profile === MODE_PROFILES.detailed) {
+      const isDetailedGpu = profile === MODE_PROFILES.detailed;
+      try {
+        // In Detailed mode, never build the large model on the CPU: fail fast and drop to the
+        // smaller model instead.
+        const r = await this.initWorker(profile, gpu ? "webgpu" : "wasm", modelBuffer, !isDetailedGpu);
+        provider = r.provider;
+        warnings.push(...r.warnings);
+      } catch (e) {
+        if (!isDetailedGpu || (e as AnalysisError).code !== "webgpu_failed" || this.cancelled) throw e;
         profile = MODE_PROFILES.detailed_cpu;
         adaptations.push("GPU backend failed: switched to the smaller model at 8 samples/s on the CPU backend.");
         const nBuf = await ensureModel("yolo11n");
         const r2 = await this.initWorker(profile, "wasm", nBuf);
         provider = r2.provider;
+        warnings.push(...r2.warnings);
       }
     } catch (e) {
       return this.fail(e as AnalysisError);
@@ -244,13 +261,26 @@ export class AnalysisCoordinator {
     const total = Math.max(1, Math.floor(duration * fps));
     const times = Array.from({ length: total }, (_, i) => Math.min(duration - 0.04, i / fps + 0.02));
     const records: WorkerFrameRecord[] = [];
-    const inflight: Promise<WorkerFrameRecord>[] = [];
+    const inflight: { index: number; promise: Promise<WorkerFrameRecord> }[] = [];
     const MAX_INFLIGHT = 2;
     let gpuFallbackUsed = false;
     const frameTimes: number[] = [];
     let lastTick = performance.now();
+    // after a mid-run worker restart the new tracker numbers tracks from 1 again;
+    // offset them so they never merge with tracks from before the restart
+    let trackIdOffset = 0;
+    let markNextAsCut = false;
+    let skippedFrames = 0;
+    let consecutiveFailures = 0;
 
     const handleRecord = (rec: WorkerFrameRecord) => {
+      if (trackIdOffset > 0) {
+        rec = { ...rec, players: rec.players.map((p) => ({ ...p, trackId: p.trackId + trackIdOffset })) };
+      }
+      if (markNextAsCut) {
+        rec = { ...rec, sceneCut: true };
+        markNextAsCut = false;
+      }
       records.push(rec);
       const now = performance.now();
       frameTimes.push(now - lastTick);
@@ -274,14 +304,21 @@ export class AnalysisCoordinator {
 
     this.update({ status: "processing", stage: STAGES[1], stageIndex: 1, totalFrames: total, processedFrames: 0 });
     let fatal: AnalysisError | null = null;
+    const skip = () => {
+      skippedFrames++;
+      consecutiveFailures++;
+      if (consecutiveFailures >= MAX_CONSECUTIVE_DECODE_FAILURES) {
+        fatal = toError("decode_failed", `${consecutiveFailures} frames in a row could not be decoded; the rest of the file looks unreadable.`);
+      }
+    };
     for (let i = 0; i < total; i++) {
       if (this.cancelled) return;
       if (this.stopRequested) break;
       try {
         await seekTo(video, times[i]);
-      } catch (e) {
-        warnings.push(`Frame at ${times[i].toFixed(1)} s could not be decoded and was skipped.`);
-        void e;
+      } catch {
+        skip();
+        if (fatal) break;
         continue;
       }
       if (this.cancelled) return;
@@ -290,23 +327,26 @@ export class AnalysisCoordinator {
       try {
         bitmap = await createImageBitmap(video);
       } catch {
-        warnings.push(`Frame at ${times[i].toFixed(1)} s could not be read and was skipped.`);
+        skip();
+        if (fatal) break;
         continue;
       }
-      const pending = this.sendFrame(i, times[i], bitmap);
+      consecutiveFailures = 0;
+      const promise = this.sendFrame(i, times[i], bitmap);
       // cancellation rejects in-flight frames that may never be awaited
-      pending.catch(() => undefined);
-      inflight.push(pending);
+      promise.catch(() => undefined);
+      inflight.push({ index: i, promise });
       if (inflight.length >= MAX_INFLIGHT) {
+        const head = inflight.shift()!;
         try {
-          handleRecord(await inflight.shift()!);
+          handleRecord(await head.promise);
         } catch (e) {
           const err = e as AnalysisError;
           if (this.cancelled) return;
           if (provider === "webgpu" && !gpuFallbackUsed) {
-            // GPU failure mid-run: restart on CPU with the smaller model and continue.
+            // GPU failure mid-run: restart on CPU with the smaller model and re-run the frames
+            // that were in flight, so none are silently dropped.
             gpuFallbackUsed = true;
-            for (const p of inflight) p.catch(() => undefined);
             inflight.length = 0;
             this.pending.clear();
             profile = MODE_PROFILES.faster;
@@ -315,11 +355,19 @@ export class AnalysisCoordinator {
               const r = await this.initWorker(profile, "wasm", nBuf);
               provider = r.provider;
             } catch (e2) {
+              if (this.cancelled) return;
               fatal = e2 as AnalysisError;
               break;
             }
-            adaptations.push(`GPU inference failed at ${times[i].toFixed(1)} s (${err.message}); continued on CPU with the smaller model. Tracks restart at that point.`);
+            let maxId = 0;
+            for (const rec of records) for (const p of rec.players) maxId = Math.max(maxId, p.trackId);
+            trackIdOffset = maxId + 1;
+            markNextAsCut = true;
+            adaptations.push(
+              `GPU inference failed at ${times[head.index].toFixed(1)} s (${err.message}); continued on CPU with the smaller model. Tracks restart at that point.`
+            );
             this.update({ provider, warnings: [...warnings, ...adaptations] });
+            i = head.index - 1;
             continue;
           }
           fatal = err;
@@ -329,12 +377,16 @@ export class AnalysisCoordinator {
     }
     while (inflight.length && !fatal) {
       try {
-        handleRecord(await inflight.shift()!);
+        handleRecord(await inflight.shift()!.promise);
       } catch (e) {
+        if (this.cancelled) return;
         fatal = e as AnalysisError;
       }
     }
     if (this.cancelled) return;
+    if (skippedFrames > 0) {
+      warnings.push(`${skippedFrames} sampled frame${skippedFrames === 1 ? "" : "s"} could not be decoded and ${skippedFrames === 1 ? "was" : "were"} skipped.`);
+    }
 
     const stoppedEarly = this.stopRequested || (fatal !== null && records.length > 0);
     const raw: RawAnalysis = {
@@ -372,7 +424,7 @@ export class AnalysisCoordinator {
   }
 
   private drawPreview(video: HTMLVideoElement) {
-    const c = this.previewCanvas;
+    const c = this.cb.getPreviewCanvas?.() ?? null;
     if (!c) return;
     const ctx = c.getContext("2d");
     if (!ctx) return;
@@ -385,6 +437,8 @@ export class AnalysisCoordinator {
 
   private fail(err: AnalysisError) {
     this.teardown();
+    // a cancelled run must never report failure (it could clobber a newer run)
+    if (this.cancelled) return;
     this.update({ status: "failed", stage: undefined });
     this.cb.onError(err);
   }
@@ -398,6 +452,8 @@ export class AnalysisCoordinator {
   private teardown() {
     for (const p of this.pending.values()) p.reject(toError("cancelled", "Cancelled"));
     this.pending.clear();
+    this.readyWaiter?.reject(toError("cancelled", "Cancelled"));
+    this.readyWaiter = null;
     if (this.worker) {
       try {
         this.worker.postMessage({ type: "dispose" } satisfies WorkerRequest);

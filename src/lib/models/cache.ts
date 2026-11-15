@@ -53,31 +53,51 @@ function validateBuffer(buf: ArrayBuffer, spec: ModelSpec): void {
   }
 }
 
+/** Cache reads are best-effort: any CacheStorage failure falls back to the network. */
 async function readCache(url: string): Promise<ArrayBuffer | null> {
   if (typeof caches === "undefined") return null;
-  const cache = await caches.open(CACHE_NAME);
-  const res = await cache.match(url);
-  if (!res) return null;
-  const cachedAt = Number(res.headers.get("X-Stryde-Cached-At") ?? 0);
-  if (!cachedAt || Date.now() - cachedAt > TTL_MS) {
-    await cache.delete(url);
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const res = await cache.match(url);
+    if (!res) return null;
+    const cachedAt = Number(res.headers.get("X-Stryde-Cached-At") ?? 0);
+    if (!cachedAt || Date.now() - cachedAt > TTL_MS) {
+      await cache.delete(url);
+      return null;
+    }
+    return await res.arrayBuffer();
+  } catch {
     return null;
   }
-  return res.arrayBuffer();
 }
 
+async function deleteCache(url: string): Promise<void> {
+  if (typeof caches === "undefined") return;
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.delete(url);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Cache writes are best-effort: quota or SecurityError must not fail a valid download. */
 async function writeCache(url: string, buffer: ArrayBuffer): Promise<void> {
   if (typeof caches === "undefined") return;
-  const cache = await caches.open(CACHE_NAME);
-  await cache.put(
-    url,
-    new Response(buffer, {
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "X-Stryde-Cached-At": String(Date.now()),
-      },
-    })
-  );
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.put(
+      url,
+      new Response(buffer, {
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Stryde-Cached-At": String(Date.now()),
+        },
+      })
+    );
+  } catch {
+    /* storage full or unavailable: keep the in-memory copy only */
+  }
 }
 
 async function download(spec: ModelSpec): Promise<ArrayBuffer> {
@@ -85,9 +105,14 @@ async function download(spec: ModelSpec): Promise<ArrayBuffer> {
 
   const cached = await readCache(spec.url);
   if (cached) {
-    validateBuffer(cached, spec);
-    patch(spec.id, { state: "ready", progress: 1, fromCache: true, bytes: cached.byteLength });
-    return cached;
+    try {
+      validateBuffer(cached, spec);
+      patch(spec.id, { state: "ready", progress: 1, fromCache: true, bytes: cached.byteLength });
+      return cached;
+    } catch {
+      // corrupt cache entry: evict it and fetch a fresh copy
+      await deleteCache(spec.url);
+    }
   }
 
   const res = await fetch(spec.url);
@@ -141,12 +166,30 @@ async function load(id: ModelId): Promise<ArrayBuffer> {
   }
 }
 
-/** Download and cache all detection models (call once when the app opens). */
-export function preloadAllModels(): void {
-  for (const id of ALL_MODEL_IDS) {
-    if (snapshot[id].state === "ready" || inflight.has(id)) continue;
-    void ensureModel(id).catch(() => undefined);
+function preload(id: ModelId): void {
+  if (snapshot[id].state === "ready" || inflight.has(id)) return;
+  void ensureModel(id).catch(() => undefined);
+}
+
+async function hasWebGpuAdapter(): Promise<boolean> {
+  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  if (!gpu) return false;
+  try {
+    return !!(await gpu.requestAdapter());
+  } catch {
+    return false;
   }
+}
+
+/**
+ * Warm the model cache when the app opens. The small model is always needed; the larger
+ * one is only used with WebGPU, so CPU-only devices never download it up front.
+ */
+export function preloadAllModels(): void {
+  preload("yolo11n");
+  void hasWebGpuAdapter().then((gpu) => {
+    if (gpu) preload("yolo11s");
+  });
 }
 
 /** Wait until a model is ready and return its bytes for inference. */
@@ -165,7 +208,7 @@ export async function ensureModel(id: ModelId): Promise<ArrayBuffer> {
 export function retryModel(id: ModelId): void {
   memory.delete(id);
   patch(id, emptyStatus(MODELS[id]));
-  preloadAllModels();
+  void deleteCache(MODELS[id].url).then(() => preload(id));
 }
 
 export function subscribeModelCache(listener: () => void): () => void {
@@ -181,21 +224,28 @@ export function anyModelLoading(): boolean {
   return ALL_MODEL_IDS.some((id) => snapshot[id].state === "loading");
 }
 
+/** Models that have been requested at least once this session. */
+function requestedModels(): ModelId[] {
+  return ALL_MODEL_IDS.filter((id) => snapshot[id].state !== "idle");
+}
+
 export function allModelsReady(): boolean {
-  return ALL_MODEL_IDS.every((id) => snapshot[id].state === "ready");
+  const req = requestedModels();
+  return req.length > 0 && req.every((id) => snapshot[id].state === "ready");
 }
 
 export function modelCacheSummary(): { state: ModelLoadState; label: string; progress: number } {
-  if (ALL_MODEL_IDS.some((id) => snapshot[id].state === "error")) {
+  const req = requestedModels();
+  if (req.some((id) => snapshot[id].state === "error")) {
     return { state: "error", label: "Couldn’t load the analysis engine", progress: 0 };
   }
-  const loading = ALL_MODEL_IDS.filter((id) => snapshot[id].state === "loading");
+  const loading = req.filter((id) => snapshot[id].state === "loading");
   if (loading.length) {
     const avg = loading.reduce((s, id) => s + snapshot[id].progress, 0) / loading.length;
-    return { state: "loading", label: "Loading analysis engine — please wait…", progress: avg };
+    return { state: "loading", label: "Loading the detection model", progress: avg };
   }
   if (allModelsReady()) {
     return { state: "ready", label: "Ready", progress: 1 };
   }
-  return { state: "idle", label: "Preparing analysis engine…", progress: 0 };
+  return { state: "idle", label: "Preparing analysis engine", progress: 0 };
 }

@@ -275,6 +275,11 @@ export interface DetectorSettings {
   ballThreshold: number;
   iouThreshold: number;
   preferredProvider: ExecutionProvider;
+  /**
+   * When false and WebGPU fails, the worker reports "webgpu_failed" instead of building the
+   * same model on WebAssembly (the caller then picks a smaller CPU-friendly model).
+   */
+  allowWasmFallback?: boolean;
 }
 
 export type WorkerRequest =

@@ -38,10 +38,36 @@ interface StoreState {
   removeMatch: (id: string) => void;
 }
 
-const coordinators = new Map<string, AnalysisCoordinator>();
+/**
+ * One entry per running analysis. A run is registered synchronously when it starts (before the
+ * model download), so cancel works at every stage; every async continuation checks that its run
+ * is still the current one before touching the store.
+ */
+interface Run {
+  aborted: boolean;
+  coordinator?: AnalysisCoordinator;
+}
+const runs = new Map<string, Run>();
+const previewCanvases = new Map<string, HTMLCanvasElement>();
 
 export function getCoordinator(id: string) {
-  return coordinators.get(id);
+  return runs.get(id)?.coordinator;
+}
+
+export function isAnalysisRunning(id: string) {
+  return runs.has(id);
+}
+
+/** Attach a canvas that receives live frames while `id` is being analyzed. Returns a detach fn. */
+export function attachPreviewCanvas(id: string, canvas: HTMLCanvasElement): () => void {
+  previewCanvases.set(id, canvas);
+  return () => {
+    if (previewCanvases.get(id) === canvas) previewCanvases.delete(id);
+  };
+}
+
+function isAnalysisError(e: unknown): e is AnalysisError {
+  return typeof e === "object" && e !== null && "code" in e && "message" in e;
 }
 
 function randomId(): string {
@@ -83,7 +109,13 @@ export const useStryde = create<StoreState>((set, get) => {
 
     startAnalysis(id) {
       const m = get().matches[id];
-      if (!m || coordinators.has(id)) return;
+      if (!m || runs.has(id)) return;
+      const run: Run = { aborted: false };
+      runs.set(id, run);
+      const live = () => !run.aborted && runs.get(id) === run;
+      const finish = () => {
+        if (runs.get(id) === run) runs.delete(id);
+      };
 
       patch(id, {
         error: undefined,
@@ -92,7 +124,7 @@ export const useStryde = create<StoreState>((set, get) => {
         session: {
           ...m.session,
           status: "loading",
-          stage: "Loading analysis engine…",
+          stage: "Loading analysis engine",
           stageIndex: 0,
           progress: 0.01,
           startedAt: Date.now(),
@@ -103,70 +135,70 @@ export const useStryde = create<StoreState>((set, get) => {
       void (async () => {
         try {
           const gpu = await detectWebGpu();
-          const modelId = modelIdForMode(m.config.mode, gpu);
-          const modelBuffer = await ensureModel(modelId);
-
-          if (coordinators.has(id)) return;
+          if (!live()) return;
+          const modelBuffer = await ensureModel(modelIdForMode(m.config.mode, gpu));
+          if (!live()) return;
           const current = get().matches[id];
-          if (!current) return;
+          if (!current) return finish();
 
           const coord = new AnalysisCoordinator(id, current.file, current.meta, current.config, {
-            onProgress: (session, preview) => patch(id, preview ? { session, lastRecord: preview.record } : { session }),
+            getPreviewCanvas: () => previewCanvases.get(id) ?? null,
+            onProgress: (session, preview) => {
+              if (!live()) return;
+              patch(id, preview ? { session, lastRecord: preview.record } : { session });
+            },
             onComplete: (raw) => {
+              // yield a frame so the "rendering" stage paints before the synchronous build
               setTimeout(() => {
+                if (!live()) return;
                 try {
-                  const live = get().matches[id];
-                  const result = buildResult(raw, live?.overrides ?? {});
+                  const result = buildResult(raw, get().matches[id]?.overrides ?? {});
                   patch(id, (mm) => ({
                     raw,
                     result,
-                    session: {
-                      ...mm.session,
-                      status: "complete",
-                      progress: 1,
-                      stage: "Complete",
-                      stageIndex: 5,
-                      completedAt: Date.now(),
-                    },
+                    session: { ...mm.session, status: "complete", progress: 1, stage: "Complete", stageIndex: 5, completedAt: Date.now() },
                   }));
                 } catch (e) {
                   patch(id, (mm) => ({
                     error: {
                       code: "analytics_failed",
-                      message: `Analytics could not be computed: ${String((e as Error).message ?? e)}`,
+                      message: `Analytics could not be computed: ${e instanceof Error ? e.message : String(e)}`,
                       recoverable: true,
                       suggestedAction: "Retry the analysis; if it fails again try Faster mode.",
                     },
                     session: { ...mm.session, status: "failed" },
                   }));
                 }
-                coordinators.delete(id);
+                finish();
               }, 50);
             },
             onError: (error) => {
-              patch(id, { error, session: { ...get().matches[id]!.session, status: "failed" } });
-              coordinators.delete(id);
+              if (!live()) return;
+              patch(id, (mm) => ({ error, session: { ...mm.session, status: "failed" } }));
+              finish();
             },
           });
-          coordinators.set(id, coord);
+          run.coordinator = coord;
           await coord.start(modelBuffer);
         } catch (e) {
-          patch(id, {
-            error: {
-              code: "model_load",
-              message: "The analysis engine could not be loaded.",
-              recoverable: true,
-              suggestedAction: "Check your connection, wait for the status bar at the top to finish loading, then retry.",
-            },
-            session: { ...get().matches[id]!.session, status: "failed" },
-          });
+          if (!live()) return;
+          const error: AnalysisError = isAnalysisError(e)
+            ? e
+            : {
+                code: "model_load",
+                message: `The analysis engine could not be loaded${e instanceof Error ? `: ${e.message}` : "."}`,
+                recoverable: true,
+                suggestedAction: "Check your connection, wait for the engine status to finish loading, then retry.",
+              };
+          patch(id, (mm) => ({ error, session: { ...mm.session, status: "failed" } }));
+          finish();
         }
       })();
     },
 
     retryAnalysis(id, configPatch) {
       const m = get().matches[id];
-      if (!m || coordinators.has(id)) return;
+      if (!m || runs.has(id)) return;
       const config = { ...m.config, ...configPatch };
       patch(id, {
         config,
@@ -180,15 +212,16 @@ export const useStryde = create<StoreState>((set, get) => {
     },
 
     cancelAnalysis(id) {
-      const c = coordinators.get(id);
-      if (c) {
-        void c.cancel();
-        coordinators.delete(id);
-      }
+      const run = runs.get(id);
+      if (!run) return;
+      run.aborted = true;
+      runs.delete(id);
+      void run.coordinator?.cancel();
+      patch(id, (mm) => ({ session: { ...mm.session, status: "cancelled", stage: undefined } }));
     },
 
     stopEarly(id) {
-      coordinators.get(id)?.stopEarly();
+      runs.get(id)?.coordinator?.stopEarly();
     },
 
     applyOverrides(id, p) {
