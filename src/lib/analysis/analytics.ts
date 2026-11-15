@@ -227,7 +227,8 @@ export function calculateAnalytics(params: {
   const known = secA + secB;
   const knownShare = params.analyzedSeconds > 0 ? known / params.analyzedSeconds : 0;
   const possQuality: QualityLevel =
-    known < 2 ? "unavailable" : knownShare >= 0.6 ? "medium" : knownShare >= 0.25 ? "low" : "low";
+    // a percentage built on a sliver of the clip is not a possession figure
+    known < 5 || knownShare < 0.25 ? "unavailable" : knownShare >= 0.6 ? "medium" : "low";
 
   const analytics = (["team_a", "team_b"] as const).map((team): TeamAnalytics => {
     const teamTracks = tracks.filter((t) => t.teamId === team);

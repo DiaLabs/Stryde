@@ -6,7 +6,12 @@ export const EVENT_PARAMS = {
   calibratedShotSpeed: 14, // m/s
   calibratedMaxGoalDistance: 36, // m
   calibratedMaxAngle: (24 * Math.PI) / 180,
-  imageShotSpeed: 0.92, // frame-widths per second (camera stabilized)
+  imageShotSpeed: 0.92, // frame-widths per second (camera stabilized), when player size is unknown
+  /** image mode: shot speed expressed in player heights per second (~14 m/s for a 1.8 m player) */
+  imageShotHeightsPerSecond: 7.8,
+  imageShotSpeedFloor: 0.25,
+  /** image mode: mean detector confidence of the ball positions in the run */
+  minImageBallConfidence: 0.2,
   minSegmentsCalibrated: 2,
   minSegmentsImage: 3,
   minTravelImage: 0.055,
@@ -37,7 +42,14 @@ function frameByIndex(frames: WorkerFrameRecord[]): Map<number, WorkerFrameRecor
   return new Map(frames.map((f) => [f.frameIndex, f]));
 }
 
-/** True when the ball sits at a player's feet — usually a pass or touch, not a shot. */
+/** Median player box height in a frame (fraction of frame height), or null without players. */
+function medianPlayerHeight(frame: WorkerFrameRecord | undefined): number | null {
+  if (!frame || frame.players.length < 3) return null;
+  const hs = frame.players.map((p) => p.box.height).sort((a, b) => a - b);
+  return hs[hs.length >> 1];
+}
+
+/** True when the ball sits at a player's feet: where a shot (or pass) starts. */
 function ballNearPlayer(obs: BallObservation, frame: WorkerFrameRecord | undefined): boolean {
   if (!frame) return false;
   for (const p of frame.players) {
@@ -69,6 +81,8 @@ export function detectEvents(
   sampleFps: number,
   frames: WorkerFrameRecord[] = []
 ): EventAnalysis {
+  // only detected positions: interpolated ones are straight lines by construction
+  ball = ball.filter((b) => !b.interpolated);
   const notes: string[] = [];
   const indexOf = new Map(summaries.map((s, i) => [s.frameIndex, i]));
   const frameMap = frameByIndex(frames);
@@ -112,7 +126,11 @@ export function detectEvents(
       const ang = Math.acos(Math.max(-1, Math.min(1, (gx * s.vx + gy * s.vy) / (dist * s.speed + 1e-9))));
       return ang <= EVENT_PARAMS.calibratedMaxAngle;
     }
-    return s.speed >= EVENT_PARAMS.imageShotSpeed && s.speed < 3.5;
+    // scale the threshold to the players' size on screen, so it means roughly the same real
+    // speed in a wide shot and a close-up
+    const h = medianPlayerHeight(frameMap.get(s.a.frameIndex));
+    const threshold = h ? Math.max(EVENT_PARAMS.imageShotSpeedFloor, (EVENT_PARAMS.imageShotHeightsPerSecond * h) / aspect) : EVENT_PARAMS.imageShotSpeed;
+    return s.speed >= threshold && s.speed < 3.5;
   };
 
   let i = 0;
@@ -143,7 +161,12 @@ export function detectEvents(
       (end.y + summaries[indexOf.get(end.frameIndex)!].cameraY - (start.y + summaries[indexOf.get(start.frameIndex)!].cameraY)) / aspect
     );
 
-    if (group.length >= need && !(nearPlayer && !cal) && (cal || travelImage >= EVENT_PARAMS.minTravelImage)) {
+    // Without calibration only the strongest evidence counts: the run must start with a touch
+    // (ball at a player's feet) and be built from confidently detected ball positions, because
+    // a wrong ball pick on empty grass easily forms a fast "run".
+    const avgBallConf = group.reduce((acc, g) => acc + Math.min(g.a.confidence, g.b.confidence), 0) / group.length;
+    const imageEvidence = nearPlayer && avgBallConf >= EVENT_PARAMS.minImageBallConfidence && travelImage >= EVENT_PARAMS.minTravelImage;
+    if (group.length >= need && (cal || imageEvidence)) {
       const traj: MatchEvent["trajectory"] = [];
       const startIdx = ball.indexOf(start);
       for (let k = startIdx; k < ball.length; k++) {
@@ -158,7 +181,7 @@ export function detectEvents(
       const speedBonus = cal ? Math.min(0.15, (topSpeed - EVENT_PARAMS.calibratedShotSpeed) / 80) : Math.min(0.1, (topSpeed - EVENT_PARAMS.imageShotSpeed) / 8);
       const confidence = cal
         ? Math.min(0.85, 0.38 + 0.08 * group.length + 0.28 * avgConf + speedBonus)
-        : Math.min(0.55, 0.18 + 0.07 * group.length + 0.22 * avgConf + speedBonus - (nearPlayer ? 0.12 : 0));
+        : Math.min(0.55, 0.18 + 0.07 * group.length + 0.22 * avgConf + speedBonus + (nearPlayer ? 0.05 : 0));
       if (confidence >= (cal ? 0.42 : 0.28)) {
         events.push({
           eventId: `shot-${id++}`,

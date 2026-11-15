@@ -90,7 +90,7 @@ export function buildResult(raw: RawAnalysis, overrides: AnalysisOverrides = {})
   if (ballCoverage < 0.2)
     warnings.push(`Ball detected in only ${(ballCoverage * 100).toFixed(0)}% of sampled frames; possession and events are limited.`);
   const frameTimes = summaries.map((s) => ({ frameIndex: s.frameIndex, t: s.timestampSeconds }));
-  const possession = estimatePossession(frameTimes, tracks, ball, calibrated);
+  const possession = estimatePossession(frameTimes, tracks, ball, calibrated, aspect);
   const durations = sampleDurations(
     summaries.map((s) => s.timestampSeconds),
     sampleInterval * 2.5

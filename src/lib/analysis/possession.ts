@@ -19,6 +19,12 @@ export const POSSESSION_PARAMS = {
   /** minimum vote share to assign a team */
   minShare: 0.65,
   minTeamConfidence: 0.3,
+  /** the other team must lead for this long before possession switches */
+  minSwitchSeconds: 0.8,
+  /** vertical image distance is foreshortened by perspective; scale it back up */
+  verticalScale: 1.25,
+  /** weight of interpolated (not detected) ball positions */
+  interpolatedWeight: 0.5,
 };
 
 /**
@@ -29,7 +35,9 @@ export function estimatePossession(
   frameTimes: { frameIndex: number; t: number }[],
   tracks: ObjectTrack[],
   ball: BallObservation[],
-  calibrated: boolean
+  calibrated: boolean,
+  /** frame width / height: image coordinates are normalised per axis */
+  aspect = 16 / 9
 ): PossessionSample[] {
   // index player observations by frame
   const byFrame = new Map<number, { track: ObjectTrack; obs: ObjectTrack["observations"][number] }[]>();
@@ -55,7 +63,8 @@ export function estimatePossession(
           const fx = obs.box.x + obs.box.width / 2;
           const fy = obs.box.y + obs.box.height;
           const h = Math.max(obs.box.height, 0.02);
-          d = Math.hypot(b.x - fx, (b.y - fy) * 0.9) / h / POSSESSION_PARAMS.maxImageDistance;
+          // both axes in units of frame height (x is normalised to width, so scale by aspect)
+          d = Math.hypot((b.x - fx) * aspect, (b.y - fy) * POSSESSION_PARAMS.verticalScale) / h / POSSESSION_PARAMS.maxImageDistance;
         }
         return { track, d };
       })
@@ -68,7 +77,8 @@ export function estimatePossession(
     const nearest = scored[0];
     const rival = scored.find((s) => s.track.teamId !== nearest.track.teamId);
     const contested = rival && rival.d < nearest.d * 1.25 + 0.08;
-    const weight = Math.min(1, b.confidence * 2) * (1 - nearest.d * 0.6) * (nearest.track.teamConfidence ?? 0.5);
+    const weight =
+      Math.min(1, b.confidence * 2) * (1 - nearest.d * 0.6) * (nearest.track.teamConfidence ?? 0.5) * (b.interpolated ? POSSESSION_PARAMS.interpolatedWeight : 1);
     evidence.push({
       t: b.timestampSeconds,
       team: contested ? "contested" : (nearest.track.teamId as "team_a" | "team_b"),
@@ -126,7 +136,58 @@ export function estimatePossession(
       nearestTrackId: team === "unknown" ? undefined : nearestTrackId,
     });
   }
-  return samples;
+  return applyHysteresis(samples);
+}
+
+/**
+ * Possession only changes when the other team leads for minSwitchSeconds; the switch is then
+ * backdated to when that spell began. Short unknown/contested spells keep the current team
+ * (with decaying confidence) for up to `hold` seconds.
+ */
+function applyHysteresis(raw: PossessionSample[]): PossessionSample[] {
+  const P = POSSESSION_PARAMS;
+  const out = raw.map((s) => ({ ...s }));
+  let cur: TeamId = "unknown";
+  let curLastT = -Infinity;
+  let pending: { team: TeamId; start: number; startT: number } | null = null;
+  for (let i = 0; i < out.length; i++) {
+    const s = raw[i];
+    const t = s.timestampSeconds;
+    if (s.teamId !== "unknown" && (cur === "unknown" || t - curLastT > P.hold)) {
+      cur = s.teamId;
+      curLastT = t;
+      pending = null;
+      continue;
+    }
+    if (s.teamId === cur && cur !== "unknown") {
+      curLastT = t;
+      pending = null;
+      continue;
+    }
+    if (s.teamId !== "unknown") {
+      // the other team leads: start or extend a pending switch
+      if (!pending || pending.team !== s.teamId) pending = { team: s.teamId, start: i, startT: t };
+      if (t - pending.startT >= P.minSwitchSeconds - 1e-6) {
+        for (let j = pending.start; j <= i; j++) {
+          out[j] = { ...raw[j], teamId: pending.team, basis: "proximity_temporal", confidence: Math.max(raw[j].confidence, 0.2) };
+        }
+        cur = pending.team;
+        curLastT = t;
+        pending = null;
+      } else {
+        out[i] = { ...s, teamId: cur, confidence: s.confidence * 0.5 };
+      }
+      continue;
+    }
+    // no evidence: keep the current team for a short while
+    if (cur !== "unknown" && t - curLastT <= P.hold) {
+      out[i] = { ...s, teamId: cur, basis: "proximity_temporal", confidence: 0.3 * (1 - (t - curLastT) / P.hold) };
+    } else {
+      cur = "unknown";
+      pending = null;
+    }
+  }
+  return out;
 }
 
 /** Duration each sample represents (half-gap to neighbors, capped). */
