@@ -114,6 +114,50 @@ export function homographyMapper(
 }
 
 /**
+ * Several calibrated reference frames (a panning broadcast camera covers far more pitch than
+ * one frame's pan compensation can reach). Each sampled frame is mapped through the reference
+ * whose camera position is closest, among those whose coverage includes it.
+ */
+export function multiHomographyMapper(
+  summaries: FrameSummary[],
+  refs: { H: number[]; referenceIndex: number }[],
+  maxDrift = 0.35
+): { mapper: PitchMapper; validFraction: number; meanDrift: number } {
+  if (refs.length === 1) return homographyMapper(summaries, refs[0].H, refs[0].referenceIndex, maxDrift);
+  const singles = refs.map((r) => {
+    const m = homographyMapper(summaries, r.H, r.referenceIndex, maxDrift);
+    const valid = summaries.map((s) => s.calibrated);
+    return { ...m, valid, ref: summaries[r.referenceIndex] };
+  });
+  const choice = summaries.map((s, i) => {
+    let best = -1;
+    let bestDrift = Infinity;
+    singles.forEach((m, k) => {
+      if (!m.valid[i]) return;
+      const d = Math.hypot(s.cameraX - m.ref.cameraX, s.cameraY - m.ref.cameraY);
+      if (d < bestDrift) {
+        bestDrift = d;
+        best = k;
+      }
+    });
+    return { best, drift: bestDrift };
+  });
+  const covered = choice.filter((c) => c.best >= 0);
+  summaries.forEach((s, i) => (s.calibrated = choice[i].best >= 0));
+  return {
+    mapper: {
+      method: "homography",
+      map(fi, x, y) {
+        const c = choice[fi];
+        return c && c.best >= 0 ? singles[c.best].mapper.map(fi, x, y) : null;
+      },
+    },
+    validFraction: summaries.length ? covered.length / summaries.length : 0,
+    meanDrift: covered.length ? covered.reduce((acc, c) => acc + c.drift, 0) / covered.length : 0,
+  };
+}
+
+/**
  * Image-space fallback: camera-stabilized image coordinates stretched onto the pitch
  * rectangle. Approximate; not physical units.
  */
@@ -170,31 +214,49 @@ export function mapTracks(tracks: ObjectTrack[], summaries: FrameSummary[], mapp
       o.speedMetersPerSecond = undefined;
     }
     if (mapper.method !== "homography") continue;
-    // Speeds from 3-sample smoothed positions, differenced ±2 observations apart,
-    // to suppress bounding-box jitter at the feet.
+    // Box jitter at the feet is ~0.3–0.5 m per sample, which turns naive differencing into
+    // several m/s of fake speed. Positions are averaged over ±0.6 s and speed is the slope of a
+    // least-squares line through ±0.8 s of positions (at least 4 samples).
     const obs = t.observations;
-    const smooth = obs.map((o, i) => {
-      if (o.pitchX === undefined) return null;
+    const SMOOTH = 0.6;
+    const SLOPE = 0.8;
+    for (let i = 0; i < obs.length; i++) {
+      const o = obs[i];
+      if (o.pitchX === undefined) continue;
       let sx = 0;
       let sy = 0;
       let n = 0;
-      for (let k = Math.max(0, i - 1); k <= Math.min(obs.length - 1, i + 1); k++) {
-        const q = obs[k];
-        if (q.pitchX === undefined || Math.abs(q.timestampSeconds - o.timestampSeconds) > 0.6) continue;
+      for (const q of obs) {
+        if (q.pitchX === undefined || Math.abs(q.timestampSeconds - o.timestampSeconds) > SMOOTH) continue;
         sx += q.pitchX;
         sy += q.pitchY!;
         n++;
       }
-      return { x: sx / n, y: sy / n, t: o.timestampSeconds };
-    });
-    for (let i = 0; i < obs.length; i++) {
-      const a = smooth[Math.max(0, i - 2)];
-      const b = smooth[Math.min(obs.length - 1, i + 2)];
-      if (!a || !b || a === b) continue;
-      const dt = b.t - a.t;
-      if (dt <= 0.15 || dt > 1.6) continue;
-      const v = Math.hypot(b.x - a.x, b.y - a.y) / dt;
-      if (v <= 11) obs[i].speedMetersPerSecond = v;
+      o.smoothPitchX = sx / n;
+      o.smoothPitchY = sy / n;
+    }
+    for (const o of obs) {
+      if (o.pitchX === undefined) continue;
+      const pts: { t: number; x: number; y: number }[] = [];
+      for (const q of obs) {
+        if (q.pitchX === undefined || Math.abs(q.timestampSeconds - o.timestampSeconds) > SLOPE) continue;
+        pts.push({ t: q.timestampSeconds - o.timestampSeconds, x: q.pitchX, y: q.pitchY! });
+      }
+      if (pts.length < 4) continue;
+      const mt = pts.reduce((a, p) => a + p.t, 0) / pts.length;
+      const mx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+      const my = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+      let stt = 0;
+      let stx = 0;
+      let sty = 0;
+      for (const p of pts) {
+        stt += (p.t - mt) ** 2;
+        stx += (p.t - mt) * (p.x - mx);
+        sty += (p.t - mt) * (p.y - my);
+      }
+      if (stt < 0.05) continue;
+      const v = Math.hypot(stx / stt, sty / stt);
+      if (v <= 11) o.speedMetersPerSecond = v;
     }
   }
 }

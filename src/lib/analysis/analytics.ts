@@ -270,10 +270,11 @@ export function calculateAnalytics(params: {
         for (let i = 1; i < obs.length; i++) {
           const a = obs[i - 1];
           const b = obs[i];
-          if (a.pitchX === undefined || b.pitchX === undefined) continue;
+          if (a.smoothPitchX === undefined || b.smoothPitchX === undefined) continue;
           const dt = b.timestampSeconds - a.timestampSeconds;
           if (dt <= 0 || dt > 1.2) continue;
-          const d = Math.hypot(b.pitchX - a.pitchX, b.pitchY! - a.pitchY!);
+          // along the smoothed path: raw positions add box jitter to every step
+          const d = Math.hypot(b.smoothPitchX - a.smoothPitchX, b.smoothPitchY! - a.smoothPitchY!);
           if (d / dt > 11) continue;
           dist += d;
         }
@@ -285,13 +286,13 @@ export function calculateAnalytics(params: {
           value: dist,
           unit: "m",
           quality: q,
-          explanation: "Sum of tracked movement across this team's visible players over calibrated frames only.",
+          explanation: "Sum of smoothed tracked movement across this team's visible players, calibrated frames only.",
         };
         averageSpeedMetersPerSecond = {
           value: speeds.reduce((s, v) => s + v, 0) / speeds.length,
           unit: "m/s",
           quality: q,
-          explanation: "Mean smoothed speed of tracked players (calibrated frames only; jumps > 11 m/s discarded).",
+          explanation: "Mean speed of tracked players from a ±0.8 s line fit (calibrated frames only; > 11 m/s discarded).",
         };
       } else {
         distanceMeters = unavailable("m", "Too few calibrated, continuous track observations.");

@@ -1,7 +1,9 @@
 import type {
   AnalysisMode,
   AnalysisResult,
+  CalibrationPoint,
   CalibrationState,
+  QualityLevel,
   ExecutionProvider,
   MatchConfig,
   VideoMetadata,
@@ -14,7 +16,8 @@ import { prepareFrames } from "./detections";
 import { detectEvents } from "./events";
 import { estimatePossession, sampleDurations } from "./possession";
 import { classifyTracks, estimateTeamColors, userColorModel } from "./teams";
-import { buildFrameSummaries, buildTracks, imageSpaceMapper, mapTracks, type PitchMapper } from "./tracks";
+import { computeCalibration } from "./calibration";
+import { buildFrameSummaries, buildTracks, imageSpaceMapper, mapTracks, multiHomographyMapper, type PitchMapper } from "./tracks";
 
 /** Everything produced by the expensive browser-inference pass. Re-analysis reuses it. */
 export interface RawAnalysis {
@@ -37,6 +40,15 @@ export interface RawAnalysis {
 export interface AnalysisOverrides {
   teamAColor?: string;
   teamBColor?: string;
+  /** manual pitch calibration: clicked landmarks on one reference frame */
+  calibration?: CalibrationReference | null;
+  /** additional calibrated reference frames (a panning camera needs several) */
+  calibrations?: CalibrationReference[];
+}
+
+export interface CalibrationReference {
+  points: CalibrationPoint[];
+  referenceFrameIndex: number;
 }
 
 export function buildResult(raw: RawAnalysis, overrides: AnalysisOverrides = {}): AnalysisResult {
@@ -73,16 +85,50 @@ export function buildResult(raw: RawAnalysis, overrides: AnalysisOverrides = {})
   const teamAColor = userA ?? (model ? labToHex(model.teamA) : "#2F80ED");
   const teamBColor = userB ?? (model ? labToHex(model.teamB) : "#EB5757");
 
-  // ---- pitch mapping (camera-stabilized image space)
-  const calibration: CalibrationState = {
+  // ---- pitch mapping: calibrated homography when landmarks are given, else camera-stabilised image space
+  let calibration: CalibrationState = {
     available: false,
     quality: "low",
     method: "image_space",
-    notes: "Positions are mapped from camera-stabilized image coordinates.",
+    notes: "Positions are mapped from camera-stabilized image coordinates. Calibrate the pitch for distances, speeds and team shape.",
   };
-  const mapper: PitchMapper = imageSpaceMapper(summaries, tracks);
+  let mapper: PitchMapper = imageSpaceMapper(summaries, tracks);
+  const refsIn = [...(overrides.calibrations ?? []), ...(overrides.calibration ? [overrides.calibration] : [])].filter(
+    (r, i, all) => r.points.length >= 4 && all.findIndex((q) => q.referenceFrameIndex === r.referenceFrameIndex) === i
+  );
+  if (refsIn.length) {
+    const solved = refsIn.map((r) => ({ r, s: computeCalibration(r.points), idx: summaries.findIndex((x) => x.frameIndex === r.referenceFrameIndex) }));
+    const usable = solved.filter((x) => x.s.H && x.idx >= 0);
+    for (const x of solved) if (!x.s.H || x.idx < 0) warnings.push(`A pitch calibration could not be applied: ${x.s.message ?? "reference frame not found"}.`);
+    if (usable.length) {
+      const hm = multiHomographyMapper(
+        summaries,
+        usable.map((x) => ({ H: x.s.H!, referenceIndex: x.idx }))
+      );
+      const errorMeters = usable.reduce((acc, x) => acc + x.s.errorMeters, 0) / usable.length;
+      const quality: QualityLevel = errorMeters < 1.5 && hm.meanDrift < 0.1 ? "high" : errorMeters < 3.5 && hm.meanDrift < 0.22 ? "medium" : "low";
+      mapper = hm.mapper;
+      const first = usable[0];
+      calibration = {
+        available: true,
+        quality,
+        method: "homography",
+        transform: first.s.H!,
+        referenceTimestamp: summaries[first.idx].timestampSeconds,
+        referenceFrameIndex: first.r.referenceFrameIndex,
+        points: first.r.points,
+        reprojectionErrorMeters: errorMeters,
+        validFraction: hm.validFraction,
+        notes:
+          `${usable.length === 1 ? "One calibrated frame" : `${usable.length} calibrated frames`} (mean landmark error ${errorMeters.toFixed(1)} m), pan-compensated. ` +
+          `Covers ${(hm.validFraction * 100).toFixed(0)}% of sampled frames; other frames are left out of pitch metrics.`,
+      };
+      if (hm.validFraction < 0.5)
+        warnings.push("Calibration covers less than half of the clip because the camera pans away from the calibrated view. Calibrate another frame from the uncovered part to extend it.");
+    }
+  }
   mapTracks(tracks, summaries, mapper);
-  const calibrated = false;
+  const calibrated = calibration.method === "homography";
 
   // ---- ball, possession, events
   const ball = selectBall(frames, summaries, mapper, aspect);

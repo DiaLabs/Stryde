@@ -230,6 +230,7 @@ export function detectEvents(
   if (!calibrated) {
     notes.push("Shots are estimated from fast ball movement in the camera view; long passes can look similar.");
   }
-  notes.push("Goal detection is not available in this version.");
+  if (!calibrated) notes.push("Goals need pitch calibration: without it the goal mouth can't be located.");
+  else notes.push("Goals are estimated when a fast ball crosses the goal line between the posts; check them on the video.");
   return { events, shots, goals, notes };
 }

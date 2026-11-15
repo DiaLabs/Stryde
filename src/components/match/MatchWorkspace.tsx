@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Badge, Button, Card, CardHeader, LinkButton, Magnet, TeamChip } from "@/components/ui/primitives";
 import { buildTeamFrames } from "@/lib/analysis/analytics";
 import { formatBytes, formatDuration, formatMetric } from "@/lib/format";
+import { formatClock } from "@/lib/format";
 import { buildRenderIndex } from "@/lib/render";
 import { isPartial } from "@/lib/result";
 import { useStryde, type MatchEntry } from "@/lib/store";
@@ -17,6 +18,7 @@ import { EventsList } from "./EventsList";
 import { PitchPanel } from "./PitchPanel";
 import { PlaybackProvider } from "./playback";
 import { PossessionTimeline } from "./PossessionTimeline";
+import { CalibrationPanel } from "./CalibrationPanel";
 import { QualityPanel } from "./QualityPanel";
 import { SummaryView } from "./SummaryView";
 import { TeamSettingsPanel } from "./TeamSettingsPanel";
@@ -30,6 +32,7 @@ const TABS = [
   { id: "events", label: "Events" },
   { id: "summary", label: "Summary" },
   { id: "teams", label: "Teams & quality" },
+  { id: "calibration", label: "Pitch calibration" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -54,6 +57,7 @@ export function MatchWorkspace({ entry, result }: { entry: MatchEntry; result: A
   const [confirm, setConfirm] = useState<"rerun" | "discard" | null>(null);
 
   const index = useMemo(() => buildRenderIndex(result), [result]);
+  const calibrations = entry.overrides.calibrations ?? (entry.overrides.calibration ? [entry.overrides.calibration] : []);
   const teamFrames = useMemo(() => buildTeamFrames(result.tracks, result.frames, 1 / result.coverage.sampleFps), [result]);
   const colorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
@@ -195,6 +199,58 @@ export function MatchWorkspace({ entry, result }: { entry: MatchEntry; result: A
             />
             <QualityPanel result={result} />
           </div>
+        );
+      case "calibration":
+        return (
+          <Card>
+            <CardHeader
+              title="Pitch calibration"
+              subtitle={
+                result.calibration.method === "homography"
+                  ? "Calibration is active: distances, speeds and team shape use pitch coordinates."
+                  : "Optional. Mark 4 or more pitch landmarks on one frame to unlock distances, speeds, team shape and real thirds."
+              }
+            />
+            <div className="space-y-4 px-5 pb-5">
+              {calibrations.length > 0 && (
+                <div className="rounded-lg border border-line bg-page/60 px-4 py-3 text-sm">
+                  <p className="font-semibold text-ink">
+                    {calibrations.length === 1 ? "1 calibrated frame" : `${calibrations.length} calibrated frames`}
+                    {result.calibration.validFraction !== undefined && (
+                      <span className="font-normal text-ink-2">, covering {Math.round(result.calibration.validFraction * 100)}% of the clip</span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-[13px] text-ink-2">A panning camera moves away from a calibrated view; calibrate another frame from the uncovered part to extend coverage.</p>
+                  <ul className="mt-2 flex flex-wrap gap-2">
+                    {calibrations.map((c) => (
+                      <li key={c.referenceFrameIndex} className="flex items-center gap-2 rounded-full border border-line bg-card py-1 pr-1 pl-3 text-[13px]">
+                        Frame at {formatClock(result.frames.find((f) => f.frameIndex === c.referenceFrameIndex)?.timestampSeconds ?? 0)}, {c.points.length} points
+                        <button
+                          type="button"
+                          onClick={() => applyOverrides(entry.id, { calibrations: calibrations.filter((x) => x.referenceFrameIndex !== c.referenceFrameIndex), calibration: null })}
+                          className="rounded-full px-2 py-0.5 text-ink-2 hover:bg-danger-bg hover:text-danger"
+                          aria-label={`Remove the calibrated frame at ${formatClock(result.frames.find((f) => f.frameIndex === c.referenceFrameIndex)?.timestampSeconds ?? 0)}`}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <CalibrationPanel
+                src={entry.url}
+                result={result}
+                index={index}
+                onApply={(cal) =>
+                  applyOverrides(entry.id, {
+                    calibration: null,
+                    calibrations: cal ? [...calibrations.filter((x) => x.referenceFrameIndex !== cal.referenceFrameIndex), cal] : [],
+                  })
+                }
+              />
+            </div>
+          </Card>
         );
     }
   })();

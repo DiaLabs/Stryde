@@ -76,6 +76,9 @@ export interface TrackObservation {
   pitchX?: number;
   pitchY?: number;
   speedMetersPerSecond?: number;
+  /** pitch position smoothed over ±0.6 s (calibrated only); distance is integrated along this */
+  smoothPitchX?: number;
+  smoothPitchY?: number;
   confidence: number;
 }
 

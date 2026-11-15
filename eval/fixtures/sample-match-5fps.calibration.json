@@ -1,0 +1,12 @@
+{
+  "referenceFrameIndex": 204,
+  "note": "Hand-placed on the frame at 40.82 s (centre circle and halfway line), 854x480 pixels normalised.",
+  "points": [
+    { "landmarkId": "center_spot", "imageX": 0.51405, "imageY": 0.72917, "pitchX": 52.5, "pitchY": 34 },
+    { "landmarkId": "circle_left", "imageX": 0.14169, "imageY": 0.72708, "pitchX": 43.35, "pitchY": 34 },
+    { "landmarkId": "circle_right", "imageX": 0.88759, "imageY": 0.72708, "pitchX": 61.65, "pitchY": 34 },
+    { "landmarkId": "circle_top", "imageX": 0.51405, "imageY": 0.62708, "pitchX": 52.5, "pitchY": 24.85 },
+    { "landmarkId": "circle_bottom", "imageX": 0.51405, "imageY": 0.86042, "pitchX": 52.5, "pitchY": 43.15 },
+    { "landmarkId": "half_top", "imageX": 0.51171, "imageY": 0.4625, "pitchX": 52.5, "pitchY": 0 }
+  ]
+}
