@@ -22,6 +22,12 @@ export interface BallCandidate {
   confidence: number;
   /** share of grass pixels around the candidate (0..1) */
   grass: number;
+  /** which detector pass found it */
+  source?: "full" | "crop";
+}
+
+export function ballGrass(img: RgbaImage, b: BoundingBox): number {
+  return grassFraction(img, b.x + b.width / 2, b.y + b.height / 2, Math.max(b.width * 2.5, 0.01), Math.max(b.height * 2.5, 0.015));
 }
 
 export const MAX_PEOPLE = 60;
@@ -47,13 +53,7 @@ export function frameFeatures(decoded: { players: RawDetection[]; balls: RawDete
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_BALL_CANDIDATES)
-    .map((d) => {
-      const b = d.box;
-      const cx = b.x + b.width / 2;
-      const cy = b.y + b.height / 2;
-      const grass = grassFraction(img, cx, cy, Math.max(b.width * 2.5, 0.01), Math.max(b.height * 2.5, 0.015));
-      return { box: b, confidence: d.score, grass };
-    });
+    .map((d) => ({ box: d.box, confidence: d.score, grass: ballGrass(img, d.box), source: "full" as const }));
 
   return { people, balls };
 }

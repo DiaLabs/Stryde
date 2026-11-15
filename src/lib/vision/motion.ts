@@ -125,3 +125,24 @@ export function estimateMotion(prev: Thumb, curr: Thumb): MotionEstimate {
     residual: grayResidual,
   };
 }
+
+/**
+ * Compact appearance signature of a thumbnail for cut detection: 4×4 grid of mean luminance
+ * plus an 8-bin luminance histogram (24 numbers, each 0..1).
+ */
+export function thumbSignature(t: Thumb): number[] {
+  const grid = new Array(16).fill(0);
+  const counts = new Array(16).fill(0);
+  const hist = new Array(8).fill(0);
+  for (let y = 0; y < t.height; y++) {
+    for (let x = 0; x < t.width; x++) {
+      const v = t.gray[y * t.width + x];
+      const g = Math.min(3, Math.floor((y / t.height) * 4)) * 4 + Math.min(3, Math.floor((x / t.width) * 4));
+      grid[g] += v;
+      counts[g]++;
+      hist[Math.min(7, Math.floor(v * 8))]++;
+    }
+  }
+  const n = t.width * t.height;
+  return [...grid.map((v, i) => v / Math.max(1, counts[i])), ...hist.map((v) => v / n)];
+}

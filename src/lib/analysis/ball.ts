@@ -1,211 +1,194 @@
 import type { BallObservation, FrameSummary, WorkerFrameRecord } from "../types";
 import type { PitchMapper } from "./tracks";
 
-interface StabilizedBall {
-  b: { box: BallObservation["box"]; confidence: number };
+/*
+ * Ball tracking: choose at most one ball per sampled frame by finding the globally cheapest
+ * path through all candidates of all frames (dynamic programming / Viterbi). Working offline on
+ * the whole clip lets a weak but consistent detection beat a strong one-frame false positive
+ * (a head, a sock, the penalty spot), which a greedy frame-by-frame choice cannot do.
+ *
+ * Costs (lower is better; every frame is either a chosen candidate or a miss):
+ *   unary     -confidence reward, plus a penalty when a weak candidate has no grass around it
+ *   transition  squared, gated, camera-stabilised displacement minus a continuity bonus
+ *   skip      small cost per frame skipped inside a run (the detector missed the ball)
+ *   restart   cost of starting a new run, so isolated weak detections are not worth taking
+ * Short gaps inside a run are then filled by linear interpolation and flagged `interpolated`.
+ */
+
+export const BALL_PARAMS = {
+  /** reward per unit of detector confidence */
+  confWeight: 4,
+  /** base cost of any candidate (makes very weak candidates net-neutral) */
+  unaryBase: 0.15,
+  /** weak candidates (< strongScore) without grass around them */
+  noGrassPenalty: 0.6,
+  minGrass: 0.1,
+  strongScore: 0.22,
+  restartCost: 0.6,
+  skipCost: 0.12,
+  continuityBonus: 0.25,
+  transitionWeight: 0.8,
+  /** gating: max stabilised jump (frame widths) = jumpBase + jumpPerSecond * dt */
+  jumpBase: 0.05,
+  jumpPerSecond: 1.35,
+  /** how far back (seconds) a run may bridge missing detections */
+  maxBridgeSeconds: 0.9,
+  /** gaps up to this long inside a run are interpolated */
+  maxInterpolateSeconds: 0.6,
+};
+
+interface Cand {
+  fi: number;
+  box: BallObservation["box"];
+  confidence: number;
+  grass?: number;
   x: number;
   y: number;
   sx: number;
   sy: number;
 }
 
-interface TrackState {
-  sx: number;
-  sy: number;
-  t: number;
-  vx: number;
-  vy: number;
-}
-
-function stabilizedCandidates(f: WorkerFrameRecord, s: FrameSummary, aspect: number): StabilizedBall[] {
+function candidates(f: WorkerFrameRecord, s: FrameSummary, fi: number, aspect: number): Cand[] {
   return f.balls.map((b) => {
     const x = b.box.x + b.box.width / 2;
     const y = b.box.y + b.box.height / 2;
-    return { b, x, y, sx: x + s.cameraX, sy: (y + s.cameraY) / aspect };
+    return { fi, box: b.box, confidence: b.confidence, grass: b.grass, x, y, sx: x + s.cameraX, sy: (y + s.cameraY) / aspect };
   });
 }
 
-function predict(state: TrackState, t: number): { sx: number; sy: number; dt: number } {
-  const dt = Math.max(0, t - state.t);
-  return { sx: state.sx + state.vx * dt, sy: state.sy + state.vy * dt, dt };
+function unary(c: Cand, P = BALL_PARAMS): number {
+  let u = P.unaryBase - P.confWeight * c.confidence;
+  // no grass around it: stands, boards, TV graphics. Strong detections are penalised less (a
+  // ball in the air), never exempt (a confident false ball on the advertising boards is common).
+  if (c.grass !== undefined && c.grass < P.minGrass) u += c.confidence < P.strongScore ? P.noGrassPenalty : P.noGrassPenalty * 0.6 + 1.2 * c.confidence;
+  return u;
 }
 
-function updateState(state: TrackState, sx: number, sy: number, t: number): TrackState {
-  const dt = t - state.t;
-  if (dt <= 0) return { sx, sy, t, vx: state.vx, vy: state.vy };
-  const vx = dt < 1.2 ? state.vx * 0.35 + ((sx - state.sx) / dt) * 0.65 : (sx - state.sx) / dt;
-  const vy = dt < 1.2 ? state.vy * 0.35 + ((sy - state.sy) / dt) * 0.65 : (sy - state.sy) / dt;
-  return { sx, sy, t, vx, vy };
-}
-
-function pickCandidate(cands: StabilizedBall[], state: TrackState | null, t: number): StabilizedBall | null {
-  if (!cands.length) return null;
-  if (!state) return cands.sort((a, b) => b.b.confidence - a.b.confidence)[0] ?? null;
-
-  const { sx: px, sy: py, dt } = predict(state, t);
-  const maxJump = 0.05 + 1.35 * dt;
-  let best: StabilizedBall | null = null;
-  let bestScore = Infinity;
-  for (const c of cands) {
-    const toPred = Math.hypot(c.sx - px, c.sy - py);
-    const toLast = Math.hypot(c.sx - state.sx, c.sy - state.sy);
-    const d = Math.min(toPred, toLast);
-    if (d > maxJump) continue;
-    const score = d / maxJump - c.b.confidence * 0.85 - (c.b.confidence >= 0.2 ? 0.08 : 0);
-    if (score < bestScore) {
-      bestScore = score;
-      best = c;
-    }
-  }
-  if (best) return best;
-  const strong = cands.filter((c) => c.b.confidence >= 0.22).sort((a, b) => b.b.confidence - a.b.confidence)[0];
-  if (strong && Math.hypot(strong.sx - state.sx, strong.sy - state.sy) <= maxJump * 1.35) return strong;
-  return null;
-}
-
-function toObservation(
-  pick: StabilizedBall,
-  f: WorkerFrameRecord,
-  fi: number,
-  mapper: PitchMapper
-): BallObservation & { sx: number; sy: number } {
-  const p = mapper.method === "homography" ? mapper.map(fi, pick.x, pick.b.box.y + pick.b.box.height) : null;
-  return {
-    frameIndex: f.frameIndex,
-    timestampSeconds: f.timestampSeconds,
-    x: pick.x,
-    y: pick.y,
-    box: pick.b.box,
-    confidence: pick.b.confidence,
-    pitchX: p?.x,
-    pitchY: p?.y,
-    sx: pick.sx,
-    sy: pick.sy,
-  };
-}
-
-/** Forward pass with velocity prediction in camera-stabilized space. */
-function forwardTrack(
-  frames: WorkerFrameRecord[],
-  summaries: FrameSummary[],
-  mapper: PitchMapper,
-  aspect: number
-): Map<number, BallObservation & { sx: number; sy: number }> {
-  const out = new Map<number, BallObservation & { sx: number; sy: number }>();
-  let state: TrackState | null = null;
-  frames.forEach((f, fi) => {
-    const s = summaries[fi];
-    if (s.sceneCut) state = null;
-    const pick = pickCandidate(stabilizedCandidates(f, s, aspect), state, f.timestampSeconds);
-    if (!pick) return;
-    const obs = toObservation(pick, f, fi, mapper);
-    out.set(f.frameIndex, obs);
-    state = updateState(state ?? { sx: pick.sx, sy: pick.sy, t: f.timestampSeconds, vx: 0, vy: 0 }, pick.sx, pick.sy, f.timestampSeconds);
-  });
-  return out;
-}
-
-/** Fill 1–2 frame gaps when raw detections exist and neighbors agree. */
-function gapFill(
-  tracked: Map<number, BallObservation & { sx: number; sy: number }>,
-  frames: WorkerFrameRecord[],
-  summaries: FrameSummary[],
-  mapper: PitchMapper,
-  aspect: number
-): Map<number, BallObservation & { sx: number; sy: number }> {
-  const out = new Map(tracked);
-  for (let fi = 0; fi < frames.length; fi++) {
-    const f = frames[fi];
-    if (out.has(f.frameIndex) || !f.balls.length) continue;
-    const s = summaries[fi];
-    let prev: (BallObservation & { sx: number; sy: number }) | null = null;
-    let next: (BallObservation & { sx: number; sy: number }) | null = null;
-    for (let j = fi - 1; j >= 0; j--) {
-      const o = out.get(frames[j].frameIndex);
-      if (o) {
-        prev = o;
-        break;
-      }
-    }
-    for (let j = fi + 1; j < frames.length; j++) {
-      const o = out.get(frames[j].frameIndex);
-      if (o) {
-        next = o;
-        break;
-      }
-    }
-    if (!prev && !next) continue;
-    const anchor = prev && next ? (prev.timestampSeconds - f.timestampSeconds <= f.timestampSeconds - next.timestampSeconds ? prev : next) : prev ?? next!;
-    const dt = Math.abs(f.timestampSeconds - anchor.timestampSeconds);
-    if (dt > 0.55) continue;
-    const cands = stabilizedCandidates(f, s, aspect);
-    const maxJump = 0.045 + 1.1 * dt;
-    let best: StabilizedBall | null = null;
-    let bestScore = Infinity;
-    for (const c of cands) {
-      const d = Math.hypot(c.sx - anchor.sx, c.sy - anchor.sy);
-      if (d > maxJump) continue;
-      if (prev && next) {
-        const lineD =
-          Math.abs((next.sy - prev.sy) * c.sx - (next.sx - prev.sx) * c.sy + next.sx * prev.sy - next.sy * prev.sx) /
-          (Math.hypot(next.sy - prev.sy, next.sx - prev.sx) + 1e-6);
-        if (lineD > maxJump * 0.9) continue;
-      }
-      const score = d / maxJump - c.b.confidence;
-      if (score < bestScore) {
-        bestScore = score;
-        best = c;
-      }
-    }
-    if (best && best.b.confidence >= 0.12) out.set(f.frameIndex, toObservation(best, f, fi, mapper));
-  }
-  return out;
+function transition(a: Cand, b: Cand, dt: number, P = BALL_PARAMS): number {
+  const d = Math.hypot(b.sx - a.sx, b.sy - a.sy);
+  const maxJump = P.jumpBase + P.jumpPerSecond * dt;
+  if (d > maxJump) return Infinity;
+  const r = d / maxJump;
+  return P.transitionWeight * r * r - P.continuityBonus;
 }
 
 /**
- * Choose at most one ball per sampled frame using temporal consistency in
- * camera-stabilized image space. Weak isolated detections are discarded rather
- * than trusted; no positions are interpolated.
+ * Cheapest path, in time order. State 0 at a frame means "no ball"; state k > 0 is candidate
+ * k - 1. Every state keeps a back-pointer (frame, state); a pointer that jumps back more than one
+ * frame bridges frames whose ball was missed by the detector.
  */
-export function selectBall(
-  frames: WorkerFrameRecord[],
-  summaries: FrameSummary[],
-  mapper: PitchMapper,
-  aspect: number
-): BallObservation[] {
-  let tracked = forwardTrack(frames, summaries, mapper, aspect);
-  tracked = gapFill(tracked, frames, summaries, mapper, aspect);
+function bestPath(frames: WorkerFrameRecord[], summaries: FrameSummary[], cands: Cand[][], P = BALL_PARAMS): Cand[] {
+  const n = frames.length;
+  const times = frames.map((f) => f.timestampSeconds);
+  const cost: Float64Array[] = cands.map((cs) => new Float64Array(cs.length + 1));
+  const ptrF: Int32Array[] = cands.map((cs) => new Int32Array(cs.length + 1).fill(-1));
+  const ptrS: Int32Array[] = cands.map((cs) => new Int32Array(cs.length + 1));
 
-  const chosen = frames
-    .map((f) => tracked.get(f.frameIndex))
-    .filter((c): c is BallObservation & { sx: number; sy: number } => !!c);
+  for (let i = 0; i < n; i++) {
+    // "no ball" at i: best state of the previous frame
+    if (i === 0) cost[0][0] = 0;
+    else {
+      let best = Infinity;
+      let arg = 0;
+      for (let s = 0; s < cost[i - 1].length; s++) {
+        if (cost[i - 1][s] < best) {
+          best = cost[i - 1][s];
+          arg = s;
+        }
+      }
+      cost[i][0] = best;
+      ptrF[i][0] = i - 1;
+      ptrS[i][0] = arg;
+    }
 
-  const consistent = chosen.filter((c, i) => {
-    if (c.confidence >= 0.18) return true;
-    const near = (j: number) => {
-      const o = chosen[j];
-      if (!o) return false;
-      const dt = Math.abs(o.timestampSeconds - c.timestampSeconds);
-      return dt <= 0.9 && Math.hypot(o.sx - c.sx, o.sy - c.sy) <= 0.055 + 1.2 * dt;
-    };
-    return near(i - 1) || near(i + 1);
-  });
+    for (let k = 0; k < cands[i].length; k++) {
+      const c = cands[i][k];
+      // start a run (after "no ball" at i-1, or at the very first frame)
+      let best = (i > 0 ? cost[i - 1][0] : 0) + P.restartCost;
+      let bf = i > 0 ? i - 1 : -1;
+      let bs = 0;
+      // continue a run from a candidate up to maxBridgeSeconds back, never across a scene cut
+      for (let j = i - 1; j >= 0 && times[i] - times[j] <= P.maxBridgeSeconds + 1e-6; j--) {
+        if (summaries[j + 1].sceneCut) break;
+        const dt = times[i] - times[j];
+        const skipped = i - j - 1;
+        for (let q = 0; q < cands[j].length; q++) {
+          const tr = transition(cands[j][q], c, dt, P);
+          if (!Number.isFinite(tr)) continue;
+          const v = cost[j][q + 1] + tr + skipped * P.skipCost;
+          if (v < best) {
+            best = v;
+            bf = j;
+            bs = q + 1;
+          }
+        }
+      }
+      cost[i][k + 1] = best + unary(c, P);
+      ptrF[i][k + 1] = bf;
+      ptrS[i][k + 1] = bs;
+    }
+  }
 
-  const seen = new Set<number>();
-  return consistent
-    .filter((c) => {
-      if (seen.has(c.frameIndex)) return false;
-      seen.add(c.frameIndex);
-      return true;
-    })
-    .map((c) => ({
-      frameIndex: c.frameIndex,
-      timestampSeconds: c.timestampSeconds,
-      x: c.x,
-      y: c.y,
-      box: c.box,
-      confidence: c.confidence,
-      pitchX: c.pitchX,
-      pitchY: c.pitchY,
-    }));
+  let s = 0;
+  for (let k = 1; k < cost[n - 1].length; k++) if (cost[n - 1][k] < cost[n - 1][s]) s = k;
+  const path: Cand[] = [];
+  let i = n - 1;
+  while (i >= 0) {
+    if (s > 0) path.push(cands[i][s - 1]);
+    const pi = ptrF[i][s];
+    const ps = ptrS[i][s];
+    i = pi;
+    s = ps;
+  }
+  return path.reverse();
+}
+
+function toObservation(c: Cand, f: WorkerFrameRecord, mapper: PitchMapper, extra?: Partial<BallObservation>): BallObservation {
+  const p = mapper.method === "homography" ? mapper.map(c.fi, c.x, c.box.y + c.box.height) : null;
+  return {
+    frameIndex: f.frameIndex,
+    timestampSeconds: f.timestampSeconds,
+    x: c.x,
+    y: c.y,
+    box: c.box,
+    confidence: c.confidence,
+    pitchX: p?.x,
+    pitchY: p?.y,
+    ...extra,
+  };
+}
+
+export function selectBall(frames: WorkerFrameRecord[], summaries: FrameSummary[], mapper: PitchMapper, aspect: number, P = BALL_PARAMS): BallObservation[] {
+  if (!frames.length) return [];
+  const cands = frames.map((f, fi) => candidates(f, summaries[fi], fi, aspect));
+  const path = bestPath(frames, summaries, cands, P);
+
+  const out: BallObservation[] = [];
+  for (let k = 0; k < path.length; k++) {
+    const a = path[k];
+    out.push(toObservation(a, frames[a.fi], mapper));
+    const b = path[k + 1];
+    if (!b || b.fi === a.fi + 1) continue;
+    // interpolate a short gap inside a run (no scene cut between)
+    const dt = frames[b.fi].timestampSeconds - frames[a.fi].timestampSeconds;
+    if (dt > P.maxInterpolateSeconds) continue;
+    let cut = false;
+    for (let j = a.fi + 1; j <= b.fi; j++) if (summaries[j].sceneCut) cut = true;
+    if (cut) continue;
+    const maxJump = P.jumpBase + P.jumpPerSecond * dt;
+    if (Math.hypot(b.sx - a.sx, b.sy - a.sy) > maxJump) continue; // two separate runs, not one
+    for (let j = a.fi + 1; j < b.fi; j++) {
+      const u = (frames[j].timestampSeconds - frames[a.fi].timestampSeconds) / dt;
+      const sx = a.sx + (b.sx - a.sx) * u;
+      const sy = a.sy + (b.sy - a.sy) * u;
+      const s = summaries[j];
+      const x = sx - s.cameraX;
+      const y = sy * aspect - s.cameraY;
+      const w = (a.box.width + b.box.width) / 2;
+      const h = (a.box.height + b.box.height) / 2;
+      const c: Cand = { fi: j, box: { x: x - w / 2, y: y - h / 2, width: w, height: h }, confidence: Math.min(a.confidence, b.confidence) * 0.5, x, y, sx, sy };
+      out.push(toObservation(c, frames[j], mapper, { interpolated: true }));
+    }
+  }
+  return out.sort((p, q) => p.timestampSeconds - q.timestampSeconds);
 }

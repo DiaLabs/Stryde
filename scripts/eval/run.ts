@@ -59,6 +59,44 @@ const median = (v: number[]) => {
   return s[Math.floor(s.length / 2)];
 };
 
+interface BallReference {
+  balls: ({ t: number; x: number; y: number; score: number } | null)[];
+}
+
+/** Ball precision/recall against a tiled-reference file (see reference.ts). */
+function ballVsReference(result: AnalysisResult, ref: BallReference): Metric[] {
+  const tol = 0.025; // frame widths
+  const aspect = result.video.width / Math.max(1, result.video.height);
+  const byFrame = new Map(result.ball.map((b) => [b.frameIndex, b]));
+  let refFrames = 0;
+  let found = 0;
+  let chosenOnRef = 0;
+  let correct = 0;
+  let detectedChosen = 0;
+  let detectedCorrect = 0;
+  ref.balls.forEach((r, fi) => {
+    const c = byFrame.get(fi);
+    if (!r) return;
+    refFrames++;
+    const ok = !!c && Math.hypot(c.x - r.x, (c.y - r.y) / aspect) <= tol;
+    if (ok) found++;
+    if (c) {
+      chosenOnRef++;
+      if (ok) correct++;
+      if (!c.interpolated) {
+        detectedChosen++;
+        if (ok) detectedCorrect++;
+      }
+    }
+  });
+  return [
+    { key: "refFrames", label: "Frames with a reference ball", value: refFrames, better: "info", digits: 0 },
+    { key: "ballRecall", label: "Ball recall vs reference", value: refFrames ? found / refFrames : 0, better: "up" },
+    { key: "ballPrecision", label: "Ball precision vs reference", value: chosenOnRef ? correct / chosenOnRef : 0, better: "up" },
+    { key: "ballPrecisionDetected", label: "  precision, detected only", value: detectedChosen ? detectedCorrect / detectedChosen : 0, better: "up" },
+  ];
+}
+
 export function metrics(result: AnalysisResult, sampleFps: number): Metric[] {
   const n = Math.max(1, result.frames.length);
   const frameByIndex = new Map(result.frames.map((f) => [f.frameIndex, f]));
@@ -138,6 +176,8 @@ function main() {
   const result = buildResult(fixtureToRaw(fx));
   const ms = performance.now() - t0;
   const ms_ = metrics(result, fx.meta.sampleFps);
+  const refPath = path.replace(/\.json$/, ".ball-reference.json");
+  if (existsSync(refPath)) ms_.splice(3, 0, ...ballVsReference(result, JSON.parse(readFileSync(refPath, "utf8")) as BallReference));
 
   const baselinePath = "eval/baseline.json";
   const baseline: Record<string, number> = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : {};

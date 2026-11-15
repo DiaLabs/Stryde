@@ -36,7 +36,15 @@ export const LEGACY_POLICY: DetectionPolicy = {
   ball: { maxWidth: 0.048, maxHeight: 0.065, minAspect: 0.45, maxAspect: 2.2, minGrass: 0.1, strongScore: 0.22, topHalfBypass: true, keep: 1 },
 };
 
-export const DEFAULT_POLICY: DetectionPolicy = LEGACY_POLICY;
+/**
+ * Current policy. Ball: up to 5 candidates per frame reach the path search, and "no grass
+ * around it" is a soft penalty there instead of a hard filter (the old top-half exemption let
+ * stands, boards and floodlights through unchecked).
+ */
+export const DEFAULT_POLICY: DetectionPolicy = {
+  people: LEGACY_POLICY.people,
+  ball: { ...LEGACY_POLICY.ball, maxWidth: 0.055, maxHeight: 0.075, minAspect: 0.4, maxAspect: 2.5, minGrass: 0, strongScore: 0, topHalfBypass: false, keep: 5 },
+};
 
 export function selectPeople(people: PersonDetection[], policy: DetectionPolicy = DEFAULT_POLICY): PersonDetection[] {
   const p = policy.people;
@@ -86,7 +94,7 @@ export function prepareFrames(frames: WorkerFrameRecord[], policy: DetectionPoli
     return {
       ...f,
       players: people.map((d, i) => ({ trackId: ids[i], box: d.box, confidence: d.confidence, color: d.color })).filter((p) => p.trackId > 0),
-      balls: balls.map((b) => ({ box: b.box, confidence: b.confidence })),
+      balls: balls.map((b) => ({ box: b.box, confidence: b.confidence, grass: b.grass })),
     };
   });
 }

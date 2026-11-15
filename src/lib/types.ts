@@ -210,6 +210,8 @@ export interface BallObservation {
   confidence: number;
   pitchX?: number;
   pitchY?: number;
+  /** filled in between two detections of the same run (not seen by the detector) */
+  interpolated?: boolean;
 }
 
 /** Per sampled frame information shared by renderer and analytics. */
@@ -260,7 +262,7 @@ export interface WorkerFrameRecord {
   frameIndex: number;
   timestampSeconds: number;
   players: WorkerPlayerDetection[];
-  balls: { box: BoundingBox; confidence: number }[];
+  balls: { box: BoundingBox; confidence: number; grass?: number }[];
   /** frame-to-frame camera shift in normalized units */
   motionX: number;
   motionY: number;
@@ -270,6 +272,10 @@ export interface WorkerFrameRecord {
   people?: import("./vision/frame").PersonDetection[];
   /** top ball candidates with features; the pipeline chooses among them offline */
   ballCandidates?: import("./vision/frame").BallCandidate[];
+  /** camera-motion alignment residual (0..1); spikes at camera cuts */
+  motionResidual?: number;
+  /** appearance signature of the frame thumbnail, for offline cut detection */
+  signature?: number[];
 }
 
 export interface DetectorSettings {
@@ -284,6 +290,8 @@ export interface DetectorSettings {
    * same model on WebAssembly (the caller then picks a smaller CPU-friendly model).
    */
   allowWasmFallback?: boolean;
+  /** run a second, zoomed detector pass for the ball (default on) */
+  ballCropPass?: boolean;
 }
 
 export type WorkerRequest =

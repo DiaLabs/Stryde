@@ -15,7 +15,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "eval": "tsx scripts/eval/run.ts",
-    "eval:extract": "tsx scripts/eval/extract.ts"
+    "eval:extract": "tsx scripts/eval/extract.ts",
+    "eval:reference": "tsx scripts/eval/reference.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

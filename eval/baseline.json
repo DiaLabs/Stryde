@@ -12,5 +12,9 @@
   "possessionKnown": 0.5336134453781513,
   "possessionSwitches": 12.599748005039897,
   "possessionA": 59.84251968503938,
-  "shots": 0
+  "shots": 0,
+  "refFrames": 89,
+  "ballRecall": 0.303,
+  "ballPrecision": 0.443,
+  "ballPrecisionDetected": 0.443
 }

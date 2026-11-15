@@ -10,7 +10,9 @@ import type {
 import { DEFAULT_POLICY, selectBallCandidates, selectPeople } from "../lib/analysis/detections";
 import type { RgbaImage } from "../lib/vision/features";
 import { frameFeatures } from "../lib/vision/frame";
-import { estimateMotion, makeThumb, type Thumb } from "../lib/vision/motion";
+import { BALL_CROP, cropCenter, cropRect, cropToFrame, mergeBallCandidates, needsCropPass, updateCropState, type BallCropState } from "../lib/vision/ballcrop";
+import { ballGrass } from "../lib/vision/frame";
+import { estimateMotion, makeThumb, thumbSignature, type Thumb } from "../lib/vision/motion";
 import { AssociationTracker } from "../lib/vision/tracker";
 import { decodeYolo, letterboxParams, toTensorData } from "../lib/vision/yolo";
 
@@ -22,6 +24,7 @@ let settings: DetectorSettings | null = null;
 let provider: ExecutionProvider = "wasm";
 const tracker = new AssociationTracker();
 let prevThumb: Thumb | null = null;
+let cropState: BallCropState | null = null;
 
 let inputCanvas: OffscreenCanvas | null = null;
 let inputCtx: OffscreenCanvasRenderingContext2D | null = null;
@@ -137,6 +140,7 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
   inputCtx = inputCanvas.getContext("2d", { willReadFrequently: true });
   tracker.reset();
   prevThumb = null;
+  cropState = null;
   post({ type: "ready", provider, warnings });
 }
 
@@ -163,7 +167,6 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   inputCtx.fillStyle = "rgb(114,114,114)";
   inputCtx.fillRect(0, 0, size, size);
   inputCtx.drawImage(bitmap, lb.padX, lb.padY, Math.round(W * lb.scale), Math.round(H * lb.scale));
-  bitmap.close();
   const rgba = inputCtx.getImageData(0, 0, size, size).data;
   tensorBuf = toTensorData(rgba, size, tensorBuf ?? undefined);
   const tensor = new ort.Tensor("float32", tensorBuf, [1, 3, size, size]);
@@ -188,19 +191,53 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   let motionX = 0;
   let motionY = 0;
   let sceneCut = false;
+  let motionResidual = 0;
   if (prevThumb) {
     const m = estimateMotion(prevThumb, thumb);
     motionX = m.dx;
     motionY = m.dy;
     sceneCut = m.sceneCut;
+    motionResidual = m.residual;
   }
   prevThumb = thumb;
 
   // Features for every detection; the pipeline decides offline which are players and which
   // candidate is the ball. The online tracker here only drives the live processing preview.
   const feats = frameFeatures(decoded, img);
+
+  // Zoomed ball pass: a second detector run on a crop around where the ball probably is, so
+  // a few-pixel broadcast ball is seen ~2.5x bigger (skipped when the full frame already has a
+  // confident ball).
+  let ballCandidates = feats.balls;
+  if (settings.ballCropPass !== false && needsCropPass(decoded.balls)) {
+    const center = cropCenter(cropState, t, feats.people);
+    if (center) {
+      const r = cropRect(center, W, H);
+      const clb = letterboxParams(r.side, r.side, size);
+      const cw = Math.round(r.side * clb.scale);
+      inputCtx.fillStyle = "rgb(114,114,114)";
+      inputCtx.fillRect(0, 0, size, size);
+      inputCtx.drawImage(bitmap, r.x, r.y, r.side, r.side, clb.padX, clb.padY, cw, cw);
+      tensorBuf = toTensorData(inputCtx.getImageData(0, 0, size, size).data, size, tensorBuf);
+      const cropTensor = new ort.Tensor("float32", tensorBuf, [1, 3, size, size]);
+      const cropOut = await session.run({ [session.inputNames[0]]: cropTensor });
+      const co = cropOut[session.outputNames[0]];
+      const found = decodeYolo((await co.getData()) as Float32Array, co.dims, clb, { player: 1.01, ball: BALL_CROP.threshold }, 0.5).balls;
+      cropTensor.dispose();
+      for (const k of Object.keys(cropOut)) cropOut[k].dispose?.();
+      const cands = found
+        .filter((d) => d.box.width * r.side <= 40 && d.box.height * r.side <= 40)
+        .map((d) => {
+          const box = cropToFrame(d.box, r, W, H);
+          return { box, confidence: d.score, grass: ballGrass(img, box), source: "crop" as const };
+        });
+      ballCandidates = mergeBallCandidates(feats.balls, cands);
+    }
+  }
+  bitmap.close();
+  cropState = updateCropState(cropState, ballCandidates, t);
   const players = selectPeople(feats.people);
-  const previewBall = selectBallCandidates(feats.balls, { ...DEFAULT_POLICY, ball: { ...DEFAULT_POLICY.ball, keep: 1 } });
+  const previewBall = selectBallCandidates(ballCandidates, { ...DEFAULT_POLICY, ball: { ...DEFAULT_POLICY.ball, keep: 1 } });
   const balls = previewBall.map((b) => ({ box: b.box, confidence: b.confidence }));
 
   const ids = tracker.update(players, t, motionX, motionY, sceneCut);
@@ -216,7 +253,9 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
     sceneCut,
     inferenceMs,
     people: feats.people,
-    ballCandidates: feats.balls,
+    ballCandidates,
+    motionResidual,
+    signature: thumbSignature(thumb),
   };
   post({ type: "frame", record });
 }
@@ -240,6 +279,7 @@ async function handle(msg: WorkerRequest) {
       case "reset":
         tracker.reset();
         prevThumb = null;
+        cropState = null;
         break;
       case "dispose":
         await session?.release();
