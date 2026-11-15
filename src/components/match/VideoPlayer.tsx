@@ -1,9 +1,9 @@
 "use client";
 
 import clsx from "clsx";
-import { Layers, Maximize, Minimize, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
+import { Check, Gauge, Keyboard, Layers, Maximize, Minimize, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 import { ViewTransition, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { Magnet, Switch } from "@/components/ui/primitives";
+import { Magnet } from "@/components/ui/primitives";
 import { formatClock } from "@/lib/format";
 import { nearestSample, possessionAt, type RenderIndex } from "@/lib/render";
 import { drawOverlay } from "@/lib/render/overlay";
@@ -27,17 +27,51 @@ export const DEFAULT_OVERLAYS: OverlayOptions = {
   showConfidence: false,
 };
 
-const LAYERS: [keyof OverlayOptions, string][] = [
-  ["showScorebug", "Team names and clock"],
-  ["showPlayerBoxes", "Player boxes"],
-  ["showTeamLabels", "Player labels"],
-  ["showPossessionHighlight", "Ring on the player nearest the ball"],
-  ["showPossessionPanel", "Possession share"],
-  ["showBall", "Ball"],
-  ["showTrails", "Movement trails"],
-  ["showShotEvents", "Shot paths"],
-  ["showGoalEvents", "Possible goals"],
-  ["showConfidence", "Detection confidence"],
+const LAYER_GROUPS: { title: string; items: [keyof OverlayOptions, string][] }[] = [
+  {
+    title: "Players",
+    items: [
+      ["showPlayerBoxes", "Boxes"],
+      ["showTeamLabels", "Labels"],
+      ["showPossessionHighlight", "Ball carrier"],
+      ["showTrails", "Trails"],
+      ["showConfidence", "Confidence"],
+    ],
+  },
+  {
+    title: "Ball and moments",
+    items: [
+      ["showBall", "Ball"],
+      ["showShotEvents", "Shots"],
+      ["showGoalEvents", "Possible goals"],
+    ],
+  },
+  {
+    title: "Panels",
+    items: [
+      ["showScorebug", "Scorebug"],
+      ["showPossessionPanel", "Possession"],
+    ],
+  },
+];
+
+const ALL_OFF = Object.fromEntries(Object.keys(DEFAULT_OVERLAYS).map((k) => [k, false])) as unknown as OverlayOptions;
+const ALL_ON = Object.fromEntries(Object.keys(DEFAULT_OVERLAYS).map((k) => [k, true])) as unknown as OverlayOptions;
+const PRESETS: { id: string; label: string; hint: string; value: OverlayOptions }[] = [
+  { id: "clean", label: "Clean", hint: "Just the footage and scorebug", value: { ...ALL_OFF, showScorebug: true } },
+  { id: "tracking", label: "Tracking", hint: "Players, ball and possession", value: DEFAULT_OVERLAYS },
+  { id: "full", label: "Full", hint: "Everything, including trails and confidence", value: ALL_ON },
+];
+const sameOverlays = (a: OverlayOptions, b: OverlayOptions) => (Object.keys(a) as (keyof OverlayOptions)[]).every((k) => a[k] === b[k]);
+
+const SHORTCUTS: [string, string][] = [
+  ["Space or K", "Play or pause"],
+  ["← / →", "Back or forward 5 s"],
+  ["J / L", "Back or forward 10 s"],
+  [", / .", "Previous or next analyzed frame"],
+  ["F or double-click", "Fullscreen"],
+  ["M", "Sound on or off"],
+  ["?", "Show these shortcuts"],
 ];
 
 type Teams = AnalysisResult["teams"];
@@ -70,6 +104,18 @@ export function VideoPlayer({
   const [muted, setMuted] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [gap, setGap] = useState(false);
+  // in fullscreen, controls hide while playing and the pointer is still
+  const [idle, setIdle] = useState(false);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shortcutsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => () => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+  }, []);
+  const wake = useCallback(() => {
+    setIdle(false);
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => setIdle(true), 2500);
+  }, []);
   const lastPublished = useRef(0);
   const overlaysRef = useRef(overlays);
   useEffect(() => {
@@ -77,7 +123,6 @@ export function VideoPlayer({
   }, [overlays]);
   const aspect = result.video.width / result.video.height;
   const teams = result.teams;
-  const speedId = useId();
   const hintId = useId();
 
   /** Publish the exact time now (pause, seek, end): never leave panels on a stale sample. */
@@ -189,7 +234,7 @@ export function VideoPlayer({
     if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
     const target = e.target as HTMLElement;
     // the layers menu and the speed picker keep their own keys
-    if (target.closest("[data-layers-menu], select, textarea, input:not(.seek)")) return;
+    if (target.closest("[data-player-popover], select, textarea, input:not(.seek)")) return;
     const onButton = !!target.closest("button");
     const onSeek = target.matches("input.seek");
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -249,6 +294,11 @@ export function VideoPlayer({
       case "m":
         setMuted((m) => !m);
         break;
+      case "?": {
+        const el = shortcutsRef.current;
+        if (el) el.togglePopover();
+        break;
+      }
       default:
         return;
     }
@@ -269,8 +319,9 @@ export function VideoPlayer({
         playsInline
         muted={muted}
         preload="auto"
-        className="absolute inset-0 size-full object-contain"
+        className="absolute inset-0 size-full cursor-pointer object-contain"
         onClick={toggle}
+        onDoubleClick={toggleFullscreen}
         onPlay={() => setPlaying(true)}
         onPause={() => {
           setPlaying(false);
@@ -301,6 +352,16 @@ export function VideoPlayer({
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 size-full" aria-hidden />
       {overlays.showScorebug && <Scorebug index={index} teams={teams} showPossession={overlays.showPossessionHighlight} />}
       {overlays.showPossessionPanel && <PossessionShare index={index} teams={teams} />}
+      {!playing && (
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label="Play"
+          className="absolute top-1/2 left-1/2 grid size-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-navy-950/70 text-white shadow-[0_8px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/20 backdrop-blur-sm transition-transform hover:scale-105 hover:bg-navy-950/85 sm:size-16"
+        >
+          <Play className="ml-1 size-6 fill-current sm:size-7" aria-hidden />
+        </button>
+      )}
       {gap && (
         <p className="pointer-events-none absolute top-2.5 right-2.5 rounded-md bg-navy-950/85 px-2.5 py-1 text-xs font-medium text-white/90 backdrop-blur-sm">
           No analyzed frame at this moment
@@ -317,8 +378,10 @@ export function VideoPlayer({
       aria-label="Annotated match video"
       aria-describedby={hintId}
       onKeyDown={onKey}
+      onPointerMove={fullscreen ? wake : undefined}
       className={clsx(
         "flex w-full min-w-0 flex-col overflow-hidden bg-navy-950 text-white select-none",
+        fullscreen && playing && idle && "cursor-none",
         fullscreen ? "h-full" : "rounded-xl border border-navy-800 shadow-[var(--shadow-card)]"
       )}
     >
@@ -334,8 +397,13 @@ export function VideoPlayer({
         picture
       )}
 
-      <div className="border-t border-white/[0.06] px-2 pt-1.5 pb-2 sm:px-3">
-        <SeekBar duration={duration} markers={markers} onSeek={seekTo} />
+      <div
+        className={clsx(
+          "border-t border-white/[0.06] px-2 pt-1.5 pb-2 transition-opacity duration-300 sm:px-3",
+          fullscreen && playing && idle && "pointer-events-none opacity-0"
+        )}
+      >
+        <SeekBar duration={duration} markers={markers} onSeek={seekTo} index={index} teams={teams} />
         <div className="flex flex-wrap items-center gap-0.5 text-sm sm:gap-1">
           <IconButton onClick={toggle} label={playing ? "Pause" : "Play"}>
             {playing ? <Pause className="size-5 fill-current" aria-hidden /> : <Play className="size-5 fill-current" aria-hidden />}
@@ -351,26 +419,55 @@ export function VideoPlayer({
           </IconButton>
           <Clock duration={duration} />
           <div className="ml-auto flex items-center gap-0.5 sm:gap-1">
-            <label className="sr-only" htmlFor={speedId}>
-              Playback speed
-            </label>
-            <select
-              id={speedId}
-              value={rate}
-              onChange={(e) => {
-                const r = Number(e.target.value);
-                setRate(r);
-                if (videoRef.current) videoRef.current.playbackRate = r;
-              }}
-              className="font-hud h-8 cursor-pointer rounded-md border-0 bg-transparent px-1.5 text-[15px] font-semibold text-white/90 hover:bg-white/10 hover:text-white"
+            <PlayerPopover
+              title="Playback speed"
+              width={180}
+              button={
+                <>
+                  <Gauge className="size-4 sm:hidden" aria-hidden />
+                  <span className="font-hud hidden text-[15px] sm:inline">{rate}×</span>
+                </>
+              }
             >
-              {SPEEDS.map((s) => (
-                <option key={s} value={s} className="bg-card font-sans text-ink">
-                  {s}×
-                </option>
-              ))}
-            </select>
+              <div className="grid gap-0.5" role="radiogroup" aria-label="Playback speed">
+                {SPEEDS.map((sp) => (
+                  <button
+                    key={sp}
+                    type="button"
+                    role="radio"
+                    aria-checked={rate === sp}
+                    onClick={() => {
+                      setRate(sp);
+                      if (videoRef.current) videoRef.current.playbackRate = sp;
+                    }}
+                    className={clsx(
+                      "flex items-center justify-between rounded-md px-2.5 py-1.5 text-sm",
+                      rate === sp ? "bg-brand-soft font-semibold text-ok" : "text-ink hover:bg-page"
+                    )}
+                  >
+                    {sp === 1 ? "Normal" : `${sp}×`}
+                    {rate === sp && <Check className="size-4" aria-hidden />}
+                  </button>
+                ))}
+              </div>
+            </PlayerPopover>
             <LayersMenu overlays={overlays} onChange={onOverlaysChange} />
+            <PlayerPopover
+              title="Keyboard shortcuts"
+              width={300}
+              popoverRef={shortcutsRef}
+              className="hidden md:flex"
+              button={<Keyboard className="size-4" aria-hidden />}
+            >
+              <dl className="grid gap-1.5 text-[13px]">
+                {SHORTCUTS.map(([k, v]) => (
+                  <div key={k} className="flex items-center justify-between gap-4">
+                    <dt className="text-ink-2">{v}</dt>
+                    <dd className="font-hud rounded-md bg-page px-1.5 py-0.5 text-[13px] font-semibold text-ink ring-1 ring-line ring-inset">{k}</dd>
+                  </div>
+                ))}
+              </dl>
+            </PlayerPopover>
             <IconButton onClick={toggleFullscreen} label={fullscreen ? "Exit fullscreen" : "Fullscreen"}>
               {fullscreen ? <Minimize className="size-4" aria-hidden /> : <Maximize className="size-4" aria-hidden />}
             </IconButton>
@@ -404,13 +501,68 @@ function Clock({ duration }: { duration: number }) {
   );
 }
 
-function SeekBar({ duration, markers, onSeek }: { duration: number; markers: MatchEvent[]; onSeek: (t: number) => void }) {
+function SeekBar({
+  duration,
+  markers,
+  onSeek,
+  index,
+  teams,
+}: {
+  duration: number;
+  markers: MatchEvent[];
+  onSeek: (t: number) => void;
+  index: RenderIndex;
+  teams: Teams;
+}) {
   const time = usePlaybackTime();
   const max = duration || 0;
   const value = Math.min(time, max);
   const pct = max ? (value / max) * 100 : 0;
+  const [hover, setHover] = useState<{ x: number; w: number; t: number } | null>(null);
+
+  // contiguous possession spells, drawn as a thin strip under the bar
+  const spells = useMemo(() => {
+    const out: { from: number; to: number; team: "team_a" | "team_b" }[] = [];
+    const ps = index.possession;
+    for (let i = 0; i < ps.length; i++) {
+      const p = ps[i];
+      if (p.teamId !== "team_a" && p.teamId !== "team_b") continue;
+      const to = ps[i + 1]?.timestampSeconds ?? p.timestampSeconds + 0.2;
+      const last = out[out.length - 1];
+      if (last && last.team === p.teamId && Math.abs(last.to - p.timestampSeconds) < 0.5) last.to = to;
+      else out.push({ from: p.timestampSeconds, to, team: p.teamId });
+    }
+    return out;
+  }, [index.possession]);
+
+  const hoverTeam = hover ? possessionAt(index, hover.t).sample?.teamId : undefined;
+  const hoverName = hoverTeam === "team_a" ? teams.teamAName : hoverTeam === "team_b" ? teams.teamBName : null;
+
   return (
-    <div className="relative">
+    <div
+      className="group relative pt-1"
+      onPointerMove={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
+        setHover({ x, w: r.width, t: max ? (x / r.width) * max : 0 });
+      }}
+      onPointerLeave={() => setHover(null)}
+    >
+      {hover && max > 0 && (
+        <div
+          className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 rounded-md bg-navy-950/95 px-2 py-1 text-center text-[11px] whitespace-nowrap text-white shadow-lg ring-1 ring-white/10"
+          style={{ left: Math.max(40, Math.min(hover.x, hover.w - 40)) }}
+          aria-hidden
+        >
+          <span className="font-hud text-[13px] font-semibold">{formatClock(hover.t)}</span>
+          {hoverName && (
+            <span className="ml-1.5 inline-flex items-center gap-1 text-white/75">
+              <Magnet color={hoverTeam === "team_a" ? teams.teamAColor : teams.teamBColor} size={7} />
+              {hoverName} on the ball
+            </span>
+          )}
+        </div>
+      )}
       <input
         type="range"
         className="seek block w-full"
@@ -427,10 +579,27 @@ function SeekBar({ duration, markers, onSeek }: { duration: number; markers: Mat
         <span
           key={m.eventId}
           aria-hidden
-          className={clsx("pointer-events-none absolute top-[7px] size-2 -translate-x-1/2 rounded-full ring-2 ring-navy-950", m.type === "goal" ? "bg-white" : "bg-hud")}
+          className={clsx("pointer-events-none absolute top-[11px] size-2 -translate-x-1/2 rounded-full ring-2 ring-navy-950", m.type === "goal" ? "bg-white" : "bg-hud")}
           style={{ left: `${(m.timestampSeconds / (max || 1)) * 100}%` }}
         />
       ))}
+      {/* who had the ball, along the clip */}
+      <div className="pointer-events-none relative mt-1 h-1 overflow-hidden rounded-full bg-white/[0.08]" aria-hidden>
+        {max > 0 &&
+          spells.map((sp, i) => (
+            <span
+              key={i}
+              className="absolute inset-y-0"
+              style={{
+                left: `${(sp.from / max) * 100}%`,
+                width: `${(Math.max(0.1, sp.to - sp.from) / max) * 100}%`,
+                background: sp.team === "team_a" ? teams.teamAColor : teams.teamBColor,
+                // a light edge keeps dark kits visible on the dark control bar
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.35)",
+              }}
+            />
+          ))}
+      </div>
     </div>
   );
 }
@@ -518,15 +687,37 @@ function PossessionShare({ index, teams }: { index: RenderIndex; teams: Teams })
 }
 
 /**
- * Overlay layers in a native popover: it renders in the top layer, so no ancestor (the video
- * frame, a scroll container, fullscreen) can clip it. Escape and clicking outside close it and
- * focus returns to the button.
+ * A control-bar button with a native popover: it renders in the top layer, so no ancestor (the
+ * video frame, a scroll container, fullscreen) can clip it. Escape and clicking outside close it
+ * and focus returns to the button.
  */
-function LayersMenu({ overlays, onChange }: { overlays: OverlayOptions; onChange: (o: OverlayOptions) => void }) {
+function PlayerPopover({
+  title,
+  button,
+  children,
+  width = 300,
+  popoverRef,
+  className,
+}: {
+  title: string;
+  button: ReactNode;
+  children: ReactNode;
+  width?: number;
+  popoverRef?: React.RefObject<HTMLDivElement | null>;
+  className?: string;
+}) {
   const id = useId();
   const titleId = useId();
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  // share the element with a parent (e.g. to open the shortcuts popover from a key press)
+  const setMenu = useCallback(
+    (el: HTMLDivElement | null) => {
+      menuRef.current = el;
+      if (popoverRef) popoverRef.current = el;
+    },
+    [popoverRef]
+  );
   const [open, setOpen] = useState(false);
 
   const place = useCallback(() => {
@@ -536,15 +727,15 @@ function LayersMenu({ overlays, onChange }: { overlays: OverlayOptions; onChange
     const r = btn.getBoundingClientRect();
     const vw = document.documentElement.clientWidth;
     const vh = window.innerHeight;
-    const width = Math.min(288, vw - 16);
-    const left = Math.max(8, Math.min(r.right - width, vw - width - 8));
+    const w = Math.min(width, vw - 16);
+    const left = Math.max(8, Math.min(r.right - w, vw - w - 8));
     const above = r.top - 16;
     const below = vh - r.bottom - 16;
     const s = menu.style;
-    s.width = `${width}px`;
+    s.width = `${w}px`;
     s.left = `${left}px`;
     s.right = "auto";
-    if (above >= 320 || above >= below) {
+    if (above >= 240 || above >= below) {
       s.top = "auto";
       s.bottom = `${vh - r.top + 8}px`;
       s.maxHeight = `${Math.max(160, above)}px`;
@@ -553,7 +744,7 @@ function LayersMenu({ overlays, onChange }: { overlays: OverlayOptions; onChange
       s.top = `${r.bottom + 8}px`;
       s.maxHeight = `${Math.max(160, below)}px`;
     }
-  }, []);
+  }, [width]);
 
   useEffect(() => {
     if (!open) return;
@@ -573,43 +764,103 @@ function LayersMenu({ overlays, onChange }: { overlays: OverlayOptions; onChange
         popoverTarget={id}
         aria-expanded={open}
         aria-controls={id}
+        aria-label={title}
         onClick={place}
-        title="Layers"
+        title={title}
         className={clsx(
-          "flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] sm:h-9 font-semibold text-white/90 transition-colors hover:bg-white/10 hover:text-white",
-          open && "bg-white/10 text-white"
+          "flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-white/90 transition-colors hover:bg-white/10 hover:text-white sm:h-9",
+          open && "bg-white/10 text-white",
+          className
         )}
       >
-        <Layers className="size-4" aria-hidden />
-        <span className="sr-only sm:not-sr-only">Layers</span>
+        {button}
       </button>
       <div
-        ref={menuRef}
+        ref={setMenu}
         id={id}
         popover="auto"
-        data-layers-menu
-        role="group"
+        data-player-popover
+        role="dialog"
         aria-labelledby={titleId}
         onToggle={(e) => {
           const isOpen = e.newState === "open";
           setOpen(isOpen);
           if (isOpen) {
             place();
-            menuRef.current?.querySelector<HTMLElement>("[role=switch]")?.focus();
+            menuRef.current?.querySelector<HTMLElement>("button, [href], input")?.focus();
           }
         }}
-        className="fixed m-0 overflow-y-auto rounded-xl border border-line bg-card p-4 text-ink shadow-[var(--shadow-pop)]"
+        className="fixed m-0 overflow-y-auto rounded-xl border border-line bg-card p-3.5 text-ink shadow-[var(--shadow-pop)]"
       >
-        <p id={titleId} className="text-[15px] font-semibold">
-          Video layers
+        <p id={titleId} className="mb-2.5 text-[13px] font-semibold text-ink">
+          {title}
         </p>
-        <p className="mt-0.5 mb-2.5 text-[13px] leading-snug text-ink-2">Solid lines are measured. Dashed lines are estimated.</p>
-        <div className="border-t border-line-soft pt-1.5">
-          {LAYERS.map(([k, label]) => (
-            <Switch key={k} label={label} checked={overlays[k]} onChange={(v) => onChange({ ...overlays, [k]: v })} />
-          ))}
-        </div>
+        {children}
       </div>
     </>
+  );
+}
+
+/** Overlay layers: one-click presets, then compact toggles grouped by what they draw. */
+function LayersMenu({ overlays, onChange }: { overlays: OverlayOptions; onChange: (o: OverlayOptions) => void }) {
+  const active = PRESETS.find((p) => sameOverlays(p.value, overlays));
+  return (
+    <PlayerPopover
+      title="Video layers"
+      width={320}
+      button={
+        <>
+          <Layers className="size-4" aria-hidden />
+          <span className="sr-only sm:not-sr-only">Layers</span>
+        </>
+      }
+    >
+      <div className="grid grid-cols-3 gap-1 rounded-lg bg-page p-1 ring-1 ring-line-soft ring-inset" role="radiogroup" aria-label="Layer presets">
+        {PRESETS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            role="radio"
+            aria-checked={active?.id === p.id}
+            title={p.hint}
+            onClick={() => onChange(p.value)}
+            className={clsx(
+              "rounded-md px-2 py-1.5 text-[13px] font-semibold transition-colors",
+              active?.id === p.id ? "bg-card text-ink shadow-sm ring-1 ring-line" : "text-ink-2 hover:text-ink"
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[11px] text-ink-2">{active ? active.hint : "Custom selection"}. Dashed lines are estimates.</p>
+      <div className="mt-3 space-y-3 border-t border-line-soft pt-3">
+        {LAYER_GROUPS.map((g) => (
+          <fieldset key={g.title}>
+            <legend className="mb-1.5 text-[11px] font-semibold text-ink-2">{g.title}</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {g.items.map(([k, label]) => {
+                const on = overlays[k];
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => onChange({ ...overlays, [k]: !on })}
+                    className={clsx(
+                      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                      on ? "border-brand/40 bg-brand-soft text-ok" : "border-line text-ink-2 hover:border-[#cfd6db] hover:text-ink"
+                    )}
+                  >
+                    {on && <Check className="size-3" aria-hidden />}
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+        ))}
+      </div>
+    </PlayerPopover>
   );
 }
