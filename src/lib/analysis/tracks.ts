@@ -52,6 +52,7 @@ export function buildTracks(frames: WorkerFrameRecord[]): ObjectTrack[] {
   for (const { track, colors } of map.values()) {
     if (colors.length) {
       track.jerseyColor = [median(colors.map((c) => c[0])), median(colors.map((c) => c[1])), median(colors.map((c) => c[2]))];
+      track.observationColors = colors;
     }
     const last = track.observations[track.observations.length - 1];
     track.status = lastT - last.timestampSeconds < 0.01 ? "active" : "ended";

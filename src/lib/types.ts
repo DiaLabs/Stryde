@@ -88,6 +88,8 @@ export interface ObjectTrack {
   status: "active" | "stale" | "ended";
   /** Median jersey color of the track (internal, used for team classification). */
   jerseyColor?: LabColor;
+  /** Per-observation jersey colours (internal, for the per-frame team vote). */
+  observationColors?: LabColor[];
 }
 
 export interface PossessionSample {

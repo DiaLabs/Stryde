@@ -60,7 +60,9 @@ function unary(c: Cand, P = BALL_PARAMS): number {
   let u = P.unaryBase - P.confWeight * c.confidence;
   // no grass around it: stands, boards, TV graphics. Strong detections are penalised less (a
   // ball in the air), never exempt (a confident false ball on the advertising boards is common).
-  if (c.grass !== undefined && c.grass < P.minGrass) u += c.confidence < P.strongScore ? P.noGrassPenalty : P.noGrassPenalty * 0.6 + 1.2 * c.confidence;
+  // The penalty grows with confidence up to 0.45 so only a very confident detection (a ball in
+  // the air above the stands' edge) can outweigh it.
+  if (c.grass !== undefined && c.grass < P.minGrass) u += P.noGrassPenalty + P.confWeight * 0.8 * Math.min(c.confidence, 0.45);
   return u;
 }
 
