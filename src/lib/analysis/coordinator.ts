@@ -205,10 +205,12 @@ export class AnalysisCoordinator {
 
   async start(modelBuffer: ArrayBuffer, ballModelBuffer?: ArrayBuffer): Promise<void> {
     this.ballModelBuffer = ballModelBuffer;
+    const ballModelMissing = !ballModelBuffer;
     const started = performance.now();
     this.update({ status: "loading", stage: "Preparing video…", stageIndex: 0, progress: 0.02, startedAt: Date.now() });
     const warnings: string[] = [];
     const adaptations: string[] = [];
+    if (ballModelMissing) warnings.push("The football ball detector failed to download; using the general detector for the ball.");
 
     // --- video element
     this.url = URL.createObjectURL(this.file);

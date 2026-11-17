@@ -135,7 +135,8 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
       for (const k of Object.keys(out)) out[k].dispose?.();
       ballSession = bs;
     } catch (e) {
-      warnings.push(`The football ball detector could not start (${String((e as Error).message ?? e).slice(0, 100)}); using the general detector for the ball.`);
+      // worded without "could not": result.ts reads that phrase as a truncated analysis
+      warnings.push(`The football ball detector failed to start (${String((e as Error).message ?? e).slice(0, 100)}); using the general detector for the ball.`);
     }
   }
 
@@ -175,7 +176,7 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
 
   const t0 = performance.now();
   const outputs = await session.run({ [session.inputNames[0]]: tensor });
-  const inferenceMs = performance.now() - t0;
+  let inferenceMs = performance.now() - t0;
   const out = outputs[session.outputNames[0]];
   const data = (await out.getData()) as Float32Array;
   const decoded = decodeYolo(
@@ -190,7 +191,9 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   // Football ball detector on the same input tensor.
   let footballBalls: ReturnType<typeof decodeSingleClass> = [];
   if (ballSession) {
+    const tb = performance.now();
     const bout = await ballSession.run({ [ballSession.inputNames[0]]: tensor });
+    inferenceMs += performance.now() - tb;
     const bo = bout[ballSession.outputNames[0]];
     footballBalls = decodeSingleClass((await bo.getData()) as Float32Array, bo.dims, lb, FOOTBALL_BALL_THRESHOLD);
     for (const k of Object.keys(bout)) bout[k].dispose?.();

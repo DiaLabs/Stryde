@@ -107,6 +107,7 @@ uv pip install --python .venv-export/bin/python --index-url https://download.pyt
 uv pip install --python .venv-export/bin/python ultralytics onnx onnxslim
 curl -L -o ball.pt https://huggingface.co/martinjolif/yolo-football-ball-detection/resolve/63666b30e2a4973e089c982769f146af54530750/yolo-football-ball-detection.pt
 .venv-export/bin/python -c "from ultralytics import YOLO; YOLO('ball.pt').export(format='onnx', imgsz=960, opset=17, simplify=True)"
+mv ball.onnx public/models/football-ball-960.onnx && rm -rf .venv-export ball.pt
 ```
 
 The checkpoint is a pickle, which runs code when loaded. The pinned revision was checked first:

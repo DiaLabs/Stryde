@@ -240,6 +240,9 @@ export function splitTracksByTeamColor(tracks: ObjectTrack[], model: TeamColorMo
     return near;
   };
   const out: ObjectTrack[] = [];
+  // split parts get fresh integer ids: the UI shows the number after "T", so "T12.1" would read
+  // as player 121 and could clash with a real track 121
+  let nextId = tracks.reduce((m, t) => Math.max(m, parseInt(t.trackId.replace(/^\D+/, ""), 10) || 0), 0) + 1;
   for (const t of tracks) {
     const colors = t.observationColors;
     if (t.objectType !== "player" || !colors || t.observations.length < 4) {
@@ -266,8 +269,10 @@ export function splitTracksByTeamColor(tracks: ObjectTrack[], model: TeamColorMo
       // l differs: does the other team hold for the next labelled sample too?
       let j = i + 1;
       while (j < labels.length && labels[j] === null) j++;
-      if (currentCount >= 2 && j < labels.length && labels[j] === l) {
-        cuts.push(i);
+      if (j < labels.length && labels[j] === l) {
+        // a real run of the old team ends here; with fewer than two samples the old label was a
+        // one-off misread (e.g. the first sample at an occlusion): adopt the new team, no cut
+        if (currentCount >= 2) cuts.push(i);
         current = l;
         currentCount = 1;
       }
@@ -287,7 +292,7 @@ export function splitTracksByTeamColor(tracks: ObjectTrack[], model: TeamColorMo
       };
       out.push({
         ...t,
-        trackId: k === 0 ? t.trackId : `${t.trackId}.${k}`,
+        trackId: k === 0 ? t.trackId : `T${nextId++}`,
         observations: obs,
         observationColors: cs,
         jerseyColor: valid.length ? [med(0), med(1), med(2)] : undefined,

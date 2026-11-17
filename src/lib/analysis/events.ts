@@ -215,7 +215,7 @@ export function detectEvents(
   if (!calibrated && goalSeen) id = goalMouthEvents(ball, summaries, frames, possession, aspect, events, id, tracks);
   events.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
 
-  const shots: QualityLevel = calibrated ? "medium" : ball.length >= 12 ? "low" : "unavailable";
+  const shots: QualityLevel = calibrated ? "medium" : ball.length >= 12 || goalSeen || events.length > 0 ? "low" : "unavailable";
   const goals: QualityLevel = calibrated || goalSeen ? "low" : "unavailable";
   if (!calibrated) {
     notes.push(
@@ -286,17 +286,23 @@ function goalMouthEvents(
     const own = byIndex.get(fi)?.goal;
     if (own) return own;
     const t = byIndex.get(fi)?.timestampSeconds ?? 0;
-    let best: Goal | null = null;
+    let best: WorkerFrameRecord | null = null;
     let bestDt = 0.25 + 1e-6;
     for (const f of frames) {
       if (!f.goal || shotOf.get(f.frameIndex) !== shotOf.get(fi)) continue;
       const dt = Math.abs(f.timestampSeconds - t);
       if (dt < bestDt) {
         bestDt = dt;
-        best = f.goal;
+        best = f;
       }
     }
-    return best;
+    if (!best?.goal) return null;
+    // a borrowed box is in its own frame's coordinates: shift it by the camera pan in between
+    const sb = camera.get(best.frameIndex);
+    const sf = camera.get(fi);
+    if (!sb || !sf) return best.goal;
+    const g = best.goal;
+    return { ...g, box: { ...g.box, x: g.box.x + sb.cameraX - sf.cameraX, y: g.box.y + sb.cameraY - sf.cameraY } };
   };
   const inMouth = (o: { x: number; y: number }, g: Goal) => {
     const b = g.box;
