@@ -10,6 +10,7 @@ import type {
 import { grassFraction, jerseyColor, type RgbaImage } from "../lib/vision/features";
 import { estimateMotion, makeThumb, type Thumb } from "../lib/vision/motion";
 import { AssociationTracker } from "../lib/vision/tracker";
+import { detectGoalFrame } from "../lib/vision/goal";
 import { decodeSingleClass, decodeYolo, letterboxParams, toTensorData } from "../lib/vision/yolo";
 
 /** Minimum score for the football ball detector (its real balls typically score 0.3–0.9). */
@@ -257,6 +258,8 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
     motionY,
     sceneCut,
     inferenceMs,
+    // the goal mouth, if visible: shots and possible goals are judged against it
+    goal: detectGoalFrame(img, players.map((p) => p.box)),
   };
   post({ type: "frame", record });
 }

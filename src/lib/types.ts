@@ -273,6 +273,8 @@ export interface WorkerFrameRecord {
   motionY: number;
   sceneCut: boolean;
   inferenceMs: number;
+  /** goal mouth seen in this frame (white posts and crossbar), if any */
+  goal?: { box: BoundingBox; score: number } | null;
 }
 
 export interface DetectorSettings {

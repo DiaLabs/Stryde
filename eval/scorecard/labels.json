@@ -23,5 +23,44 @@
       "candidates": "candidates-d3.json",
       "labels": [0,"?",1,"?","?",-1,0,0,"none","none",{"x":0.7496,"y":0.4287},0,1,"?",0,{"x":0.7451,"y":0.4849},"?","none",{"x":0.8339,"y":0.5312},0,0,1,1,"?",0,"?","?",2,"?",0,"?","?",0]
     }
+  },
+  "events": {
+    "about": "Shots and goals seen on the video (2026-11-18). A detected event counts when its time falls inside [from, to] seconds. \"maybe\" events are not scored either way.",
+    "d1": [
+      {
+        "type": "maybe",
+        "from": 46.4,
+        "to": 47.6,
+        "note": "ball played toward goal, collected by the keeper"
+      }
+    ],
+    "d2": [
+      {
+        "type": "shot",
+        "from": 4.2,
+        "to": 4.9,
+        "note": "Iniesta (Barcelona) shoots"
+      },
+      {
+        "type": "goal",
+        "from": 4.5,
+        "to": 5.6,
+        "note": "ball in the net"
+      }
+    ],
+    "d3": [
+      {
+        "type": "shot",
+        "from": 0.3,
+        "to": 1.1,
+        "note": "shot saved by the keeper"
+      },
+      {
+        "type": "maybe",
+        "from": 31.4,
+        "to": 33,
+        "note": "attack on the right-hand goal at the end of the clip"
+      }
+    ]
   }
 }

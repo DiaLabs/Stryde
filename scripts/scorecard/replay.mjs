@@ -1,6 +1,6 @@
 // Re-run the analysis pipeline from src/ on detections saved by `pnpm scorecard`, and score it.
 //
-//   pnpm scorecard:replay [--name base] [--compare <git ref>]
+//   pnpm scorecard:replay [--name base] [--compare <git ref>] [--events]
 //
 // The browser worker (detection, tracking, camera motion) is not re-run, so this measures
 // changes to src/lib/analysis (ball choice, teams, possession, events) in a few seconds.
@@ -10,7 +10,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { addScores, CLIPS, formatScore, haveRun, parseArgs, ROOT, runPath, scoreBall } from "./lib.mjs";
+import { addScores, CLIPS, formatScore, haveRun, LABELS, parseArgs, ROOT, runPath, scoreBall } from "./lib.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 const name = args.name ?? "latest";
@@ -27,6 +27,7 @@ async function loadPipeline(srcRoot, tag) {
 
 function report(label, buildResult) {
   const total = {};
+  const evTotal = { shot: { real: 0, found: 0, false: 0 }, goal: { real: 0, found: 0, false: 0 } };
   console.log(label);
   for (const clip of CLIPS) {
     if (!haveRun(name, clip)) continue;
@@ -41,8 +42,20 @@ function report(label, buildResult) {
     const teams = ["team_a", "team_b", "unknown"].map((k) => players.filter((t) => t.teamId === k).length).join("/");
     const poss = r.analytics.map((a) => (a.possessionPercent.value == null ? "–" : a.possessionPercent.value.toFixed(0))).join("/");
     console.log(`  ${clip}  ${formatScore(s, true)}   tracks A/B/unknown ${teams}, possession ${poss}`);
+    // shots and goals against the events seen on the video
+    const ev = r.events.filter((e) => e.type === "shot" || e.type === "goal");
+    const truth = LABELS.events?.[clip] ?? [];
+    const matches = (e, t) => e.timestampSeconds >= t.from && e.timestampSeconds <= t.to;
+    for (const type of ["shot", "goal"]) {
+      const real = truth.filter((t) => t.type === type);
+      evTotal[type].real += real.length;
+      evTotal[type].found += real.filter((t) => ev.some((e) => e.type === type && matches(e, t))).length;
+      evTotal[type].false += ev.filter((e) => e.type === type && !truth.some((t) => (t.type === type || t.type === "maybe") && matches(e, t))).length;
+    }
+    if (args.events) console.log(`        events: ${ev.map((e) => `${e.type} ${e.timestampSeconds.toFixed(1)}s (${Math.round(e.confidence * 100)}%)`).join(", ") || "none"}`);
   }
   if (Object.keys(total).length) console.log(`  all ${formatScore(total, true)}`);
+  console.log(`  shots found ${evTotal.shot.found}/${evTotal.shot.real} (false ${evTotal.shot.false}), goals found ${evTotal.goal.found}/${evTotal.goal.real} (false ${evTotal.goal.false})`);
 }
 
 try {

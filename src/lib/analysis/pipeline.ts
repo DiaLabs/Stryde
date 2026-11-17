@@ -97,7 +97,7 @@ export function buildResult(raw: RawAnalysis, overrides: AnalysisOverrides = {})
     summaries.map((s) => s.timestampSeconds),
     sampleInterval * 2.5
   );
-  const eventAnalysis = detectEvents(ball, summaries, possession, calibrated, aspect, raw.sampleFps, frames);
+  const eventAnalysis = detectEvents(ball, summaries, possession, calibrated, aspect, raw.sampleFps, frames, tracks);
 
   // ---- analytics
   const teamFrames = buildTeamFrames(tracks, summaries, sampleInterval);

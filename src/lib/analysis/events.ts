@@ -1,4 +1,4 @@
-import type { BallObservation, FrameSummary, MatchEvent, PossessionSample, QualityLevel, TeamId, WorkerFrameRecord } from "../types";
+import type { BallObservation, FrameSummary, MatchEvent, ObjectTrack, PossessionSample, QualityLevel, TeamId, WorkerFrameRecord } from "../types";
 import { GOAL_Y_MAX, GOAL_Y_MIN, PITCH_LENGTH, PITCH_WIDTH } from "./pitch";
 
 export const EVENT_PARAMS = {
@@ -12,6 +12,14 @@ export const EVENT_PARAMS = {
   minTravelImage: 0.055,
   maxTurn: (28 * Math.PI) / 180,
   maxPlayerProximity: 0.038,
+  /** goal-mouth shots (goal visible in the picture): distances to the goal box in goal heights */
+  mouthMinApproach: 0.8,
+  mouthMinSpeed: 3, // goal heights per second
+  mouthEndDistance: 1.5, // the run ends within this distance of the goal box (or inside it)
+  mouthEnterApproach: 0.3, // ...or enters the goal mouth, from at least this far
+  mouthEnterSpeed: 1.5,
+  mouthMaxGap: 0.65, // seconds between the two ball positions of a run
+  goalConfirmSeconds: 1.5,
 };
 
 interface Seg {
@@ -67,7 +75,8 @@ export function detectEvents(
   calibrated: boolean,
   aspect: number,
   sampleFps: number,
-  frames: WorkerFrameRecord[] = []
+  frames: WorkerFrameRecord[] = [],
+  tracks: ObjectTrack[] = []
 ): EventAnalysis {
   const notes: string[] = [];
   const indexOf = new Map(summaries.map((s, i) => [s.frameIndex, i]));
@@ -202,11 +211,185 @@ export function detectEvents(
     i = j;
   }
 
+  const goalSeen = frames.some((f) => f.goal);
+  if (!calibrated && goalSeen) id = goalMouthEvents(ball, summaries, frames, possession, aspect, events, id, tracks);
+  events.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
+
   const shots: QualityLevel = calibrated ? "medium" : ball.length >= 12 ? "low" : "unavailable";
-  const goals: QualityLevel = calibrated ? "low" : "unavailable";
+  const goals: QualityLevel = calibrated || goalSeen ? "low" : "unavailable";
   if (!calibrated) {
-    notes.push("Shots are estimated from fast ball movement in the camera view; long passes can look similar.");
+    notes.push(
+      goalSeen
+        ? "Shots are estimated from the ball moving into the goal mouth seen in the picture, or from fast ball movement; possible goals from the ball staying in the goal. Check them on the video."
+        : "Shots are estimated from fast ball movement in the camera view; long passes can look similar. No goal was seen in the picture, so goals can't be estimated."
+    );
   }
-  notes.push("Goal detection is not available in this version.");
   return { events, shots, goals, notes };
+}
+
+type Goal = NonNullable<WorkerFrameRecord["goal"]>;
+
+/**
+ * Shots and possible goals when a goal is in the picture (no calibration needed). Positions are
+ * measured relative to the detected goal mouth, in goal widths, so a camera zooming in on the
+ * attack doesn't change them. A shot: the chosen ball moves quickly toward the mouth and ends in
+ * it or right in front of it. A possible goal: after that the ball is seen inside the mouth at
+ * least twice within goalConfirmSeconds and never back out in front of it.
+ */
+function goalMouthEvents(
+  ball: BallObservation[],
+  summaries: FrameSummary[],
+  frames: WorkerFrameRecord[],
+  possession: PossessionSample[],
+  aspect: number,
+  events: MatchEvent[],
+  id: number,
+  tracks: ObjectTrack[]
+): number {
+  const P = EVENT_PARAMS;
+  /**
+   * The shooter's team: the player whose feet are nearest the ball when the shot starts (or
+   * just before). Possession smoothing lags behind a quick counter-attack, so it is only the
+   * fallback.
+   */
+  const shooterTeam = (o: BallObservation): TeamId => {
+    let best: { team: TeamId; d: number } | null = null;
+    for (const t of tracks) {
+      if (t.objectType !== "player" || (t.teamId !== "team_a" && t.teamId !== "team_b")) continue;
+      for (const ob of t.observations) {
+        const dt = o.timestampSeconds - ob.timestampSeconds;
+        if (dt < -0.05 || dt > 0.45) continue;
+        const h = Math.max(0.02, ob.box.height);
+        const d = Math.hypot(o.x - (ob.box.x + ob.box.width / 2), (o.y - (ob.box.y + ob.box.height)) * 0.9) / h + dt;
+        if (d <= 1.2 && (!best || d < best.d)) best = { team: t.teamId, d };
+      }
+    }
+    return best?.team ?? possessionTeamBefore(o.timestampSeconds, possession);
+  };
+  const byIndex = new Map(frames.map((f) => [f.frameIndex, f]));
+  const camera = new Map(summaries.map((s) => [s.frameIndex, s]));
+  /** position of observation `o` as it would appear in frame `fi` (camera pan compensated) */
+  const inFrame = (o: BallObservation, fi: number) => {
+    const so = camera.get(o.frameIndex);
+    const sf = camera.get(fi);
+    return so && sf ? { x: o.x + so.cameraX - sf.cameraX, y: o.y + so.cameraY - sf.cameraY } : { x: o.x, y: o.y };
+  };
+  // camera shot number of each frame: a goal box never carries across a cut
+  const shotOf = new Map<number, number>();
+  let shotNo = 0;
+  for (const s of summaries) {
+    if (s.sceneCut) shotNo++;
+    shotOf.set(s.frameIndex, shotNo);
+  }
+  /** goal box for a frame: its own, or the nearest within 0.25 s in the same camera shot */
+  const goalAt = (fi: number): Goal | null => {
+    const own = byIndex.get(fi)?.goal;
+    if (own) return own;
+    const t = byIndex.get(fi)?.timestampSeconds ?? 0;
+    let best: Goal | null = null;
+    let bestDt = 0.25 + 1e-6;
+    for (const f of frames) {
+      if (!f.goal || shotOf.get(f.frameIndex) !== shotOf.get(fi)) continue;
+      const dt = Math.abs(f.timestampSeconds - t);
+      if (dt < bestDt) {
+        bestDt = dt;
+        best = f.goal;
+      }
+    }
+    return best;
+  };
+  const inMouth = (o: { x: number; y: number }, g: Goal) => {
+    const b = g.box;
+    // a ball on the goal line has its centre just in front of it, and the box edge is only
+    // accurate to about 1% of the frame: allow 4% below the line
+    return o.x >= b.x - 0.01 && o.x <= b.x + b.width + 0.01 && o.y >= b.y - 0.02 && o.y <= b.y + b.height + 0.04;
+  };
+  /**
+   * Distance from the goal box, in goal heights (crossbar to goal line). The height stays fully
+   * visible when the goal is cut by the frame edge, unlike the width.
+   */
+  const toGoal = (o: { x: number; y: number }, g: Goal) => {
+    const b = g.box;
+    const dx = Math.max(b.x - o.x, 0, o.x - (b.x + b.width));
+    const dy = Math.max(b.y - o.y, 0, o.y - (b.y + b.height)) / aspect;
+    return Math.hypot(dx, dy) / Math.max(1e-3, b.height / aspect);
+  };
+
+  let blockedUntil = -Infinity;
+  for (let k = 1; k < ball.length; k++) {
+    const a = ball[k - 1];
+    const b = ball[k];
+    if (b.timestampSeconds < blockedUntil) continue;
+    const dt = b.timestampSeconds - a.timestampSeconds;
+    if (dt <= 0 || dt > P.mouthMaxGap || shotOf.get(a.frameIndex) !== shotOf.get(b.frameIndex)) continue;
+    // both positions against one goal box (the later frame's), the earlier one shifted by the
+    // camera pan in between: a goal box seen whole in one frame and as a sliver in the next
+    // must not look like the ball approaching
+    const gb = goalAt(b.frameIndex);
+    if (!gb) continue;
+    const aInB = inFrame(a, b.frameIndex);
+    if (inMouth(aInB, gb)) continue;
+    const da = toGoal(aInB, gb);
+    const db = toGoal(b, gb);
+    const endsIn = inMouth(b, gb);
+    if (!(endsIn || db <= P.mouthEndDistance)) continue;
+    // entering the goal mouth from close range is a shot even over a short distance
+    const minApproach = endsIn ? P.mouthEnterApproach : P.mouthMinApproach;
+    const minSpeed = endsIn ? P.mouthEnterSpeed : P.mouthMinSpeed;
+    if (da - db < minApproach || (da - db) / dt < minSpeed) continue;
+    // a one-frame blip (a false ball in the goal) is not a shot: the ball must not jump straight
+    // back to where it came from
+    const next = ball[k + 1];
+    if (next && next.timestampSeconds - b.timestampSeconds <= P.mouthMaxGap && shotOf.get(next.frameIndex) === shotOf.get(b.frameIndex)) {
+      if (toGoal(inFrame(next, b.frameIndex), gb) > (da + db) / 2) continue;
+    }
+
+    const team = shooterTeam(a);
+    const traj: MatchEvent["trajectory"] = [a, b].map((o) => ({ t: o.timestampSeconds, x: o.x, y: o.y }));
+    // keep only one shot per attack: drop the fast-movement shot this one duplicates
+    for (let e = events.length - 1; e >= 0; e--) {
+      const ev = events[e];
+      if (ev.type === "shot" && Math.abs(ev.timestampSeconds - a.timestampSeconds) <= 1.5) events.splice(e, 1);
+    }
+    events.push({
+      eventId: `shot-${id++}`,
+      type: "shot",
+      timestampSeconds: a.timestampSeconds,
+      endTimestampSeconds: b.timestampSeconds,
+      teamId: team,
+      confidence: Math.min(0.75, 0.45 + 0.15 * Math.min(1, (da - db) / dt / 4) + (endsIn ? 0.1 : 0)),
+      quality: "low",
+      description: endsIn ? "Ball moved quickly into the goal mouth seen in the picture." : "Ball moved quickly toward the goal mouth seen in the picture.",
+      trajectory: traj,
+    });
+
+    // possible goal: seen inside the mouth again and never back out in front of it
+    let inside = endsIn ? 1 : 0;
+    let outside = 0;
+    let enter = endsIn ? b : null;
+    for (let m = k + 1; m < ball.length; m++) {
+      const o = ball[m];
+      if (o.timestampSeconds - b.timestampSeconds > P.goalConfirmSeconds || shotOf.get(o.frameIndex) !== shotOf.get(b.frameIndex)) break;
+      const g = goalAt(o.frameIndex);
+      if (!g) continue;
+      if (inMouth(o, g)) {
+        inside++;
+        enter ??= o;
+      } else if (toGoal(o, g) <= 1.0) outside++;
+    }
+    if (enter && inside >= 2 && outside === 0) {
+      events.push({
+        eventId: `goal-${id++}`,
+        type: "goal",
+        timestampSeconds: enter.timestampSeconds,
+        teamId: team,
+        confidence: 0.45,
+        quality: "low",
+        description: "Possible goal: after the shot the ball stayed in the goal mouth seen in the picture. Check it on the video.",
+        trajectory: traj,
+      });
+    }
+    blockedUntil = b.timestampSeconds + 2;
+  }
+  return id;
 }

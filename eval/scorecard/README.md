@@ -12,6 +12,10 @@ YOLO11n had no candidate, each checked by eye). For each frame, `candidates-<cli
 label says which one is the real ball, or that none is. Labels were made by eye from enlarged
 crops of each candidate. `labels.json` explains the codes.
 
+`labels.json` also lists the shots and goals seen on the video (`events`): demo2 has Iniesta's
+shot and goal, and demo3 a saved shot. `pnpm scorecard:replay` reports how many the pipeline
+finds and how many it reports falsely; add `--events` to list them.
+
 Team assignment is checked by eye with `teams.mjs`, which draws every player in its team
 colour. A mistake shows up as one shirt colour drawn in both team colours within one frame.
 
@@ -87,6 +91,12 @@ that match app frames. On that set the original engine finds 50% of balls (67% r
 the football ball model it finds 67% (68% right). demo2 rose from 18% to 55%, and demo3 from 39%
 to 67%. On the CPU, demo1 takes about 214 s instead of 161 s. Splitting tracks whose shirt colour switches team
 fixed 2 wrong-team boxes out of about 170 checked and broke none, so it was kept.
+
+Shots and goals (2026-11-18): the original engine found none of them. Shots are now also
+judged against the goal mouth seen in the picture (white posts and crossbar, found in each
+frame), which finds demo2's shot at 4.4 s and the goal at 4.6 s, with no false alarms. demo3's
+saved shot is still missed: the camera follows the ball and the keeper saves it well in front of
+the goal.
 
 ## Notes
 
