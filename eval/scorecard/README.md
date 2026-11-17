@@ -36,6 +36,19 @@ to the pipeline at a git ref:
 pnpm scorecard:replay --name base --compare HEAD
 ```
 
+To check camera tracking, which places players on the top-down pitch view as the camera pans,
+against ffmpeg's frame-by-frame stabiliser (vidstab):
+
+```bash
+pnpm scorecard:camera --name base
+```
+
+On 2026-11-18, with the old estimator vs the current one on the same frames: error per 0.2 s
+step went from 0.51 / 1.16 / 0.65% to 0.29 / 0.70 / 0.57% of the frame width (demo1 / 2 / 3).
+The worst drift between cuts went from 18 / 32 / 20% to 8 / 16 / 12%, and slow pans are no
+longer read as no motion (before: 22, 2 and 11 steps). vidstab's zoom estimates drift too much
+to use as a reference, so zoom is not checked.
+
 To check teams by eye:
 
 ```bash

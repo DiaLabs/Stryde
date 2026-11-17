@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "scorecard": "node scripts/scorecard/run.mjs",
-    "scorecard:replay": "node scripts/scorecard/replay.mjs"
+    "scorecard:replay": "node scripts/scorecard/replay.mjs",
+    "scorecard:camera": "node scripts/scorecard/camera.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

@@ -197,7 +197,8 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   tensor.dispose();
 
   // Camera motion.
-  const thumb = makeThumb(img);
+  // players move on their own: leave them out of the camera-motion match
+  const thumb = makeThumb(img, decoded.players.map((d) => d.box));
   let motionX = 0;
   let motionY = 0;
   let sceneCut = false;
