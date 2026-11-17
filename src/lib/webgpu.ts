@@ -34,6 +34,12 @@ export async function requestHardwareAdapter(gpu: Gpu | undefined): Promise<{ ad
   return { adapter: null, softwareOnly };
 }
 
-/** What to switch on in Chrome so WebGPU reaches the graphics card (tested on Linux, Chrome 157). */
+/**
+ * How to get WebGPU onto the graphics card in Chrome on Linux (tested with Chrome 157 on an
+ * NVIDIA GTX 1650). chrome://flags alone can't do it there: it has no "ANGLE backend" choice,
+ * and without Vulkan Chrome only offers the software emulator (or, with "Use WebGPU adapter:
+ * OpenGLES", an OpenGL compatibility adapter that runs the model no faster than the CPU). Started
+ * with these switches, WebGPU runs on the card at ~55 ms a frame.
+ */
 export const WEBGPU_FLAGS_HINT =
-  "To use the GPU in Chrome, open chrome://flags and set Unsafe WebGPU Support to Enabled, Vulkan to Enabled, and Choose ANGLE graphics backend to Vulkan, then restart Chrome.";
+  "To use the GPU, start Chrome with: google-chrome --enable-unsafe-webgpu --enable-features=Vulkan --use-angle=vulkan (on Linux, chrome://flags alone can't switch WebGPU to the graphics card).";
