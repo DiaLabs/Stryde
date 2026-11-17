@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { DevicePreference, ExecutionProvider } from "./types";
+import { requestHardwareAdapter, WEBGPU_FLAGS_HINT } from "./webgpu";
 
 /**
  * Which processor analysis will run on:
@@ -18,6 +19,8 @@ export interface Accelerator {
   device?: string;
   /** WebGPU exists in this browser but returned no adapter (switched off or blocklisted) */
   webgpuBlocked?: boolean;
+  /** WebGPU only offers Chrome's software emulator (runs on the processor, far too slow) */
+  webgpuSoftware?: boolean;
 }
 
 const CHECKING: Accelerator = { kind: "checking" };
@@ -47,22 +50,14 @@ function webglDevice(): string | null {
 }
 
 async function detect(): Promise<Accelerator> {
-  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(o?: object): Promise<{ info?: { description?: string; vendor?: string } } | null> } }).gpu;
-  if (gpu) {
-    for (const opts of [{ powerPreference: "high-performance" }, {}]) {
-      try {
-        const adapter = await gpu.requestAdapter(opts);
-        if (adapter) {
-          const device = adapter.info?.description || webglDevice() || adapter.info?.vendor || undefined;
-          return { kind: "gpu", api: "WebGPU", device };
-        }
-      } catch {
-        /* try the next option */
-      }
-    }
+  const gpu = (navigator as Navigator & { gpu?: Parameters<typeof requestHardwareAdapter>[0] }).gpu;
+  const { adapter, softwareOnly } = await requestHardwareAdapter(gpu);
+  if (adapter) {
+    const device = adapter.info?.description || webglDevice() || adapter.info?.vendor || undefined;
+    return { kind: "gpu", api: "WebGPU", device };
   }
-  // a graphics card is there, but only WebGL reaches it: name it so the UI can say what to turn on
-  return { kind: "cpu", api: "WebAssembly", device: webglDevice() ?? undefined, webgpuBlocked: !!gpu };
+  // a graphics card is there, but WebGPU can't reach it: name it so the UI can say what to turn on
+  return { kind: "cpu", api: "WebAssembly", device: webglDevice() ?? undefined, webgpuBlocked: !!gpu, webgpuSoftware: softwareOnly };
 }
 
 function start() {
@@ -95,17 +90,20 @@ export function describeAccelerator(a: Accelerator): { short: string; long: stri
     const on = a.device ? ` (${a.device})` : "";
     return { short: "GPU", long: `Runs on your GPU${on} through WebGPU` };
   }
-  if (a.device) {
+  if (a.device || a.webgpuSoftware) {
+    const gpu = a.device ? `this device has a GPU (${a.device}), but ` : "";
     return {
       short: "CPU",
-      long: `Runs on your CPU: this device has a GPU (${a.device}), but WebGPU is off in this browser`,
-      hint: "To use the GPU, turn on WebGPU: in Chrome open chrome://flags, enable Unsafe WebGPU Support (and Vulkan on Linux), then restart Chrome.",
+      long: a.webgpuSoftware
+        ? `Runs on your CPU: ${gpu}WebGPU in this browser only offers a software emulator`
+        : `Runs on your CPU: ${gpu}WebGPU is off in this browser`,
+      hint: WEBGPU_FLAGS_HINT,
     };
   }
   return {
     short: "CPU",
     long: "Runs on your CPU (WebAssembly); this browser gives no access to a graphics card",
-    hint: a.webgpuBlocked ? "Turn on hardware acceleration in the browser settings, or WebGPU in chrome://flags, to use the GPU." : undefined,
+    hint: a.webgpuBlocked ? `Turn on hardware acceleration in the browser settings. ${WEBGPU_FLAGS_HINT}` : undefined,
   };
 }
 
@@ -157,7 +155,8 @@ export function runningOn(
     const name = accel.device ? `${accel.device}, ` : "";
     return { kind: "gpu", short: "GPU", sentence: `Running on the GPU of this device (${name}WebGPU).` };
   }
-  if (chosen === "cpu") {
+  // the upload page forces the CPU when no usable GPU was found: explain that, not a "choice"
+  if (chosen === "cpu" && accel.kind === "gpu") {
     return {
       kind: "cpu",
       short: "CPU",
@@ -165,12 +164,18 @@ export function runningOn(
       note: accel.kind === "gpu" ? `This device has a GPU${accel.device ? ` (${accel.device})` : ""}: choose GPU on the upload page for a much faster analysis.` : undefined,
     };
   }
+  if (accel.kind === "gpu") {
+    // WebGPU was fine when the page checked, but the GPU failed during this analysis
+    return { kind: "cpu", short: "CPU", sentence: "Running on the CPU of this device: the GPU stopped working during this analysis." };
+  }
   return {
     kind: "cpu",
     short: "CPU",
-    sentence: accel.device
-      ? "Running on the CPU of this device: WebGPU is off in this browser, so the GPU can't be used."
-      : "Running on the CPU of this device: the browser gave no access to the GPU.",
-    note: accel.device ? "Turn on WebGPU (chrome://flags, Unsafe WebGPU Support, and Vulkan on Linux), restart Chrome, and analysis will use the GPU." : undefined,
+    sentence: accel.webgpuSoftware
+      ? "Running on the CPU of this device: WebGPU in this browser only offers a software emulator, not your GPU."
+      : accel.device
+        ? "Running on the CPU of this device: WebGPU is off in this browser, so the GPU can't be used."
+        : "Running on the CPU of this device: the browser gave no access to the GPU.",
+    note: accel.device || accel.webgpuSoftware ? WEBGPU_FLAGS_HINT : undefined,
   };
 }

@@ -14,6 +14,7 @@ import { BALL_CROP, cropCenter, cropRect, cropToFrame, mergeBallCandidates, need
 import { ballGrass } from "../lib/vision/frame";
 import { estimateMotion, makeThumb, thumbSignature, type Thumb } from "../lib/vision/motion";
 import { AssociationTracker } from "../lib/vision/tracker";
+import { requestHardwareAdapter } from "../lib/webgpu";
 import { decodeYolo, letterboxParams, toTensorData } from "../lib/vision/yolo";
 
 declare const self: DedicatedWorkerGlobalScope & { ort?: typeof OrtTypes };
@@ -48,18 +49,10 @@ function validateModelBuffer(buf: ArrayBuffer, modelUrl: string): void {
   }
 }
 
-async function hasWebGpu(): Promise<boolean> {
-  const gpu = (self.navigator as Navigator & { gpu?: { requestAdapter(o?: object): Promise<unknown> } }).gpu;
-  if (!gpu) return false;
-  // prefer the discrete GPU on laptops with two
-  for (const opts of [{ powerPreference: "high-performance" }, {}]) {
-    try {
-      if (await gpu.requestAdapter(opts)) return true;
-    } catch {
-      /* try the next option */
-    }
-  }
-  return false;
+/** A WebGPU adapter on a real graphics card (never the software emulator), or null. */
+async function hardwareAdapter(): Promise<unknown> {
+  const gpu = (self.navigator as Navigator & { gpu?: Parameters<typeof requestHardwareAdapter>[0] }).gpu;
+  return (await requestHardwareAdapter(gpu)).adapter;
 }
 
 async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuffer) {
@@ -119,9 +112,14 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
   await session?.release().catch(() => undefined);
   session = null;
   tensorBuf = null;
-  const webgpu = s.preferredProvider === "webgpu" && (await hasWebGpu());
+  const adapter = s.preferredProvider === "webgpu" ? await hardwareAdapter() : null;
+  const webgpu = !!adapter;
   if (webgpu) {
     try {
+      // run on exactly the adapter checked above (not one ONNX Runtime picks on its own)
+      const env = ort!.env.webgpu as unknown as { adapter?: unknown; powerPreference?: string };
+      env.powerPreference = "high-performance";
+      if (!env.adapter) env.adapter = adapter;
       session = await tryCreate("webgpu");
       provider = "webgpu";
     } catch (e) {
@@ -134,7 +132,7 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
     }
   }
   if (!session && s.preferredProvider !== "wasm" && !webgpu) {
-    warnings.push("WebGPU isn't available in this browser, so the GPU can't be used; using the processor (WebAssembly), which is slower.");
+    warnings.push("This browser offers no WebGPU on a graphics card, so the GPU can't be used; using the processor (WebAssembly), which is slower.");
   }
   if (!session) {
     try {

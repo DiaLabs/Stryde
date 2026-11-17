@@ -504,7 +504,7 @@ export default function AnalyzePage() {
                           </span>
                         ),
                         disabled: accel.kind === "cpu" || starting,
-                        title: accel.kind === "cpu" ? (accel.device ? "WebGPU is off in this browser" : "No GPU is available to this browser") : undefined,
+                        title: accel.kind === "cpu" ? (accel.webgpuSoftware ? "WebGPU here only offers a software emulator" : accel.device ? "WebGPU is off in this browser" : "No GPU is available to this browser") : undefined,
                       },
                       {
                         value: "cpu",

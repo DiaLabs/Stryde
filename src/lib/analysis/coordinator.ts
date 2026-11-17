@@ -11,6 +11,7 @@ import type {
 } from "../types";
 import { openWebCodecsReader, seekReader, type FrameReader } from "../frames";
 import { waitForEvent } from "../video";
+import { requestHardwareAdapter } from "../webgpu";
 import type { RawAnalysis } from "./pipeline";
 import { ensureModel } from "../models/cache";
 import { MODELS } from "../models/registry";
@@ -36,17 +37,10 @@ export const MODE_PROFILES: Record<"faster" | "detailed" | "detailed_cpu", ModeP
   detailed_cpu: { model: MODELS.yolo11n.name, modelUrl: MODELS.yolo11n.url, inputSize: 960, sampleFps: 8 },
 };
 
+/** True when WebGPU runs on a real graphics card (Chrome's software emulator doesn't count). */
 export async function detectWebGpu(): Promise<boolean> {
-  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(o?: object): Promise<unknown> } }).gpu;
-  if (!gpu) return false;
-  for (const opts of [{ powerPreference: "high-performance" }, {}]) {
-    try {
-      if (await gpu.requestAdapter(opts)) return true;
-    } catch {
-      /* try the next option */
-    }
-  }
-  return false;
+  const gpu = (navigator as Navigator & { gpu?: Parameters<typeof requestHardwareAdapter>[0] }).gpu;
+  return !!(await requestHardwareAdapter(gpu)).adapter;
 }
 
 function toError(code: string, message: string): AnalysisError {
