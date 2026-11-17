@@ -34,10 +34,6 @@ export interface TrackerParams {
   newTrackThreshold: number;
   maxLostSeconds: number;
   gate: number;
-  /** extra gate per second lost (a lost player can have moved further) */
-  gateGrowthPerSecond: number;
-  /** cap on how long a lost track keeps extrapolating its velocity */
-  maxExtrapolateSeconds: number;
 }
 
 export const DEFAULT_TRACKER_PARAMS: TrackerParams = {
@@ -46,8 +42,6 @@ export const DEFAULT_TRACKER_PARAMS: TrackerParams = {
   newTrackThreshold: 0.45,
   maxLostSeconds: 1.6,
   gate: 1.1,
-  gateGrowthPerSecond: 1.2,
-  maxExtrapolateSeconds: 0.5,
 };
 
 export class AssociationTracker {
@@ -74,18 +68,12 @@ export class AssociationTracker {
     if (sceneCut) this.tracks = [];
     const ids = new Array<number>(dets.length).fill(0);
 
-    // A lost track's velocity is only trusted for a short while: beyond that the prediction
-    // drifts, so matching also considers where the player was last seen.
     const predicted = this.tracks.map((tr) => {
-      const dt = Math.min(this.params.maxExtrapolateSeconds, t - tr.lastT);
-      const lost = Math.max(0, t - tr.lastSeen);
+      const dt = Math.min(1, t - tr.lastT);
       return {
         tr,
         cx: tr.cx + tr.vx * dt + cameraDx,
         cy: tr.cy + tr.vy * dt + cameraDy,
-        lx: tr.cx + cameraDx,
-        ly: tr.cy + cameraDy,
-        gateScale: 1 + this.params.gateGrowthPerSecond * Math.min(1, lost),
       };
     });
     // camera compensation applies to stored positions too
@@ -104,8 +92,8 @@ export class AssociationTracker {
         for (const p of unmatchedTracks) {
           const pr = predicted[p];
           const scale = Math.max(pr.tr.h, det.box.height, 0.02);
-          const dist = Math.min(Math.hypot(dcx - pr.cx, (dcy - pr.cy) * 0.8), Math.hypot(dcx - pr.lx, (dcy - pr.ly) * 0.8)) / scale;
-          if (dist > gate * pr.gateScale) continue;
+          const dist = Math.hypot(dcx - pr.cx, (dcy - pr.cy) * 0.8) / scale;
+          if (dist > gate) continue;
           const predBox = { x: pr.cx - pr.tr.w / 2, y: pr.cy - pr.tr.h / 2, width: pr.tr.w, height: pr.tr.h };
           const ov = iou(predBox, det.box);
           const sizeRatio = Math.abs(Math.log(Math.max(1e-3, det.box.height) / Math.max(1e-3, pr.tr.h)));
@@ -188,7 +176,6 @@ export class AssociationTracker {
   }
 }
 
-// ~0.3 frame widths per second is already a sprint in a wide shot
 function clampV(v: number): number {
-  return Math.max(-0.3, Math.min(0.3, v));
+  return Math.max(-0.5, Math.min(0.5, v));
 }

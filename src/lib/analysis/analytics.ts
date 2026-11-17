@@ -227,8 +227,7 @@ export function calculateAnalytics(params: {
   const known = secA + secB;
   const knownShare = params.analyzedSeconds > 0 ? known / params.analyzedSeconds : 0;
   const possQuality: QualityLevel =
-    // a percentage built on a sliver of the clip is not a possession figure
-    known < 5 || knownShare < 0.25 ? "unavailable" : knownShare >= 0.6 ? "medium" : "low";
+    known < 2 ? "unavailable" : knownShare >= 0.6 ? "medium" : knownShare >= 0.25 ? "low" : "low";
 
   const analytics = (["team_a", "team_b"] as const).map((team): TeamAnalytics => {
     const teamTracks = tracks.filter((t) => t.teamId === team);
@@ -270,11 +269,10 @@ export function calculateAnalytics(params: {
         for (let i = 1; i < obs.length; i++) {
           const a = obs[i - 1];
           const b = obs[i];
-          if (a.smoothPitchX === undefined || b.smoothPitchX === undefined) continue;
+          if (a.pitchX === undefined || b.pitchX === undefined) continue;
           const dt = b.timestampSeconds - a.timestampSeconds;
           if (dt <= 0 || dt > 1.2) continue;
-          // along the smoothed path: raw positions add box jitter to every step
-          const d = Math.hypot(b.smoothPitchX - a.smoothPitchX, b.smoothPitchY! - a.smoothPitchY!);
+          const d = Math.hypot(b.pitchX - a.pitchX, b.pitchY! - a.pitchY!);
           if (d / dt > 11) continue;
           dist += d;
         }
@@ -286,13 +284,13 @@ export function calculateAnalytics(params: {
           value: dist,
           unit: "m",
           quality: q,
-          explanation: "Sum of smoothed tracked movement across this team's visible players, calibrated frames only.",
+          explanation: "Sum of tracked movement across this team's visible players over calibrated frames only.",
         };
         averageSpeedMetersPerSecond = {
           value: speeds.reduce((s, v) => s + v, 0) / speeds.length,
           unit: "m/s",
           quality: q,
-          explanation: "Mean speed of tracked players from a ±0.8 s line fit (calibrated frames only; > 11 m/s discarded).",
+          explanation: "Mean smoothed speed of tracked players (calibrated frames only; jumps > 11 m/s discarded).",
         };
       } else {
         distanceMeters = unavailable("m", "Too few calibrated, continuous track observations.");

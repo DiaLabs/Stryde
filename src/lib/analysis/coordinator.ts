@@ -9,9 +9,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from "../types";
-import { openWebCodecsReader, seekReader, type FrameReader } from "../frames";
-import { waitForEvent } from "../video";
-import { requestHardwareAdapter } from "../webgpu";
+import { seekTo, waitForEvent } from "../video";
 import type { RawAnalysis } from "./pipeline";
 import { ensureModel } from "../models/cache";
 import { MODELS } from "../models/registry";
@@ -37,10 +35,14 @@ export const MODE_PROFILES: Record<"faster" | "detailed" | "detailed_cpu", ModeP
   detailed_cpu: { model: MODELS.yolo11n.name, modelUrl: MODELS.yolo11n.url, inputSize: 960, sampleFps: 8 },
 };
 
-/** True when WebGPU runs on a real graphics card (Chrome's software emulator doesn't count). */
 export async function detectWebGpu(): Promise<boolean> {
-  const gpu = (navigator as Navigator & { gpu?: Parameters<typeof requestHardwareAdapter>[0] }).gpu;
-  return !!(await requestHardwareAdapter(gpu)).adapter;
+  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  if (!gpu) return false;
+  try {
+    return !!(await gpu.requestAdapter());
+  } catch {
+    return false;
+  }
 }
 
 function toError(code: string, message: string): AnalysisError {
@@ -72,15 +74,13 @@ export interface CoordinatorCallbacks {
 const MAX_CONSECUTIVE_DECODE_FAILURES = 8;
 
 /**
- * Main-thread analysis coordinator: decodes the sampled frames (WebCodecs, or by seeking a hidden
- * <video> when the file needs it),
+ * Main-thread analysis coordinator: seeks a hidden <video> to sampled timestamps,
  * transfers frames to the inference worker with bounded in-flight work, and
  * collects per-frame records. The source video never leaves the device.
  */
 export class AnalysisCoordinator {
   private worker: Worker | null = null;
   private video: HTMLVideoElement | null = null;
-  private reader: FrameReader | null = null;
   private url: string | null = null;
   private cancelled = false;
   private stopRequested = false;
@@ -149,7 +149,7 @@ export class AnalysisCoordinator {
     return w;
   }
 
-  private async initWorker(profile: ModeProfile, preferred: ExecutionProvider, modelBuffer: ArrayBuffer, allowWasmFallback = true) {
+  private async initWorker(profile: ModeProfile, preferred: ExecutionProvider, modelBuffer: ArrayBuffer) {
     if (this.cancelled) throw toError("cancelled", "Cancelled");
     this.worker?.terminate();
     this.worker = this.spawnWorker();
@@ -160,7 +160,6 @@ export class AnalysisCoordinator {
       ballThreshold: profile.sampleFps >= 8 ? 0.06 : 0.075,
       iouThreshold: 0.5,
       preferredProvider: preferred,
-      allowWasmFallback,
     };
     const ready = new Promise<{ provider: ExecutionProvider; warnings: string[] }>((resolve, reject) => {
       this.readyWaiter = { resolve, reject };
@@ -237,28 +236,23 @@ export class AnalysisCoordinator {
     }
     let provider: ExecutionProvider;
     try {
-      const isDetailedGpu = profile === MODE_PROFILES.detailed;
-      try {
-        // In Detailed mode, never build the large model on the CPU: fail fast and drop to the
-        // smaller model instead.
-        // the GPU through WebGPU when available, else the processor
-        const r = await this.initWorker(profile, gpu ? "webgpu" : "wasm", modelBuffer, !isDetailedGpu);
-        provider = r.provider;
-        warnings.push(...r.warnings);
-      } catch (e) {
-        if (!isDetailedGpu || (e as AnalysisError).code !== "webgpu_failed" || this.cancelled) throw e;
+      // the GPU through WebGPU when the browser offers it (unless the CPU was chosen), else the CPU
+      const r = await this.initWorker(profile, gpu ? "webgpu" : "wasm", modelBuffer);
+      provider = r.provider;
+      warnings.push(...r.warnings);
+      if (provider === "wasm" && profile === MODE_PROFILES.detailed) {
         profile = MODE_PROFILES.detailed_cpu;
-        adaptations.push("WebGPU failed: switched to the smaller model at 8 samples/s on the processor.");
+        adaptations.push("GPU backend failed: switched to the smaller model at 8 samples/s on the CPU backend.");
         const nBuf = await ensureModel("yolo11n");
+        if (this.cancelled) return;
         const r2 = await this.initWorker(profile, "wasm", nBuf);
         provider = r2.provider;
-        warnings.push(...r2.warnings);
       }
     } catch (e) {
       return this.fail(e as AnalysisError);
     }
     if (this.cancelled) return;
-    // the worker already explains why it fell back to the processor; no second warning here
+    if (provider === "wasm" && !cpuOnly) warnings.push("Running on the CPU (WebAssembly) backend; analysis will be slower than with WebGPU.");
     this.update({ provider, warnings: [...warnings, ...adaptations], progress: 0.05 });
 
     // --- frame loop
@@ -278,14 +272,6 @@ export class AnalysisCoordinator {
     let markNextAsCut = false;
     let skippedFrames = 0;
     let consecutiveFailures = 0;
-
-    // Frames come from one front-to-back decode when the browser can (much faster than a seek per
-    // frame, which re-decodes from the previous keyframe every time); else from seeking.
-    const opened = await openWebCodecsReader(this.file, times);
-    let reader: FrameReader = "unavailable" in opened ? seekReader(video, times) : opened;
-    if ("unavailable" in opened) adaptations.push(`Frames are read by seeking the video, which is slower: ${opened.unavailable}.`);
-    this.reader = reader;
-    if (this.cancelled) return this.teardown();
 
     const handleRecord = (rec: WorkerFrameRecord) => {
       if (trackIdOffset > 0) {
@@ -328,28 +314,23 @@ export class AnalysisCoordinator {
     for (let i = 0; i < total; i++) {
       if (this.cancelled) return;
       if (this.stopRequested) break;
-      let bitmap: ImageBitmap;
       try {
-        bitmap = await reader.frame(i);
+        await seekTo(video, times[i]);
       } catch {
-        if (this.cancelled) return;
-        if (reader.kind === "webcodecs" && reader.broken) {
-          // the decoder gave up on this file: carry on from this frame by seeking
-          reader.close();
-          reader = seekReader(video, times);
-          this.reader = reader;
-          i--;
-          continue;
-        }
         skip();
         if (fatal) break;
         continue;
       }
-      if (this.cancelled) {
-        bitmap.close();
-        return;
+      if (this.cancelled) return;
+      this.drawPreview(video);
+      let bitmap: ImageBitmap;
+      try {
+        bitmap = await createImageBitmap(video);
+      } catch {
+        skip();
+        if (fatal) break;
+        continue;
       }
-      this.drawPreview(bitmap);
       consecutiveFailures = 0;
       const promise = this.sendFrame(i, times[i], bitmap);
       // cancellation rejects in-flight frames that may never be awaited
@@ -386,7 +367,6 @@ export class AnalysisCoordinator {
               `GPU inference failed at ${times[head.index].toFixed(1)} s (${err.message}); continued on the processor with the smaller model. Tracks restart at that point.`
             );
             this.update({ provider, warnings: [...warnings, ...adaptations] });
-            reader.rewind(head.index);
             i = head.index - 1;
             continue;
           }
@@ -443,16 +423,16 @@ export class AnalysisCoordinator {
     this.cb.onComplete(raw);
   }
 
-  private drawPreview(frame: ImageBitmap) {
+  private drawPreview(video: HTMLVideoElement) {
     const c = this.cb.getPreviewCanvas?.() ?? null;
     if (!c) return;
     const ctx = c.getContext("2d");
     if (!ctx) return;
     if (c.width !== 480) {
       c.width = 480;
-      c.height = Math.round((480 * frame.height) / frame.width);
+      c.height = Math.round((480 * video.videoHeight) / video.videoWidth);
     }
-    ctx.drawImage(frame, 0, 0, c.width, c.height);
+    ctx.drawImage(video, 0, 0, c.width, c.height);
   }
 
   private fail(err: AnalysisError) {
@@ -484,8 +464,6 @@ export class AnalysisCoordinator {
       setTimeout(() => w.terminate(), 500);
       this.worker = null;
     }
-    this.reader?.close();
-    this.reader = null;
     if (this.video) {
       this.video.removeAttribute("src");
       this.video.load();

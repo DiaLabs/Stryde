@@ -484,9 +484,7 @@ export default function AnalyzePage() {
                         : device === "gpu"
                           ? `${accelDesc?.long}. Falls back to the CPU if the GPU fails.`
                           : accel.kind === "cpu"
-                            ? accelDesc?.hint
-                              ? `${accelDesc.long}. ${accelDesc.hint}`
-                              : "No GPU is available to this browser, so analysis runs on the CPU."
+                            ? "This browser offers no WebGPU, so analysis runs on the CPU."
                             : "Processor only (WebAssembly). Slower, but useful to compare or if the GPU misbehaves."}
                     </p>
                   </div>
@@ -504,7 +502,7 @@ export default function AnalyzePage() {
                           </span>
                         ),
                         disabled: accel.kind === "cpu" || starting,
-                        title: accel.kind === "cpu" ? (accel.webgpuSoftware ? "WebGPU here only offers a software emulator" : accel.device ? "WebGPU is off in this browser" : "No GPU is available to this browser") : undefined,
+                        title: accel.kind === "cpu" ? "This browser offers no WebGPU" : undefined,
                       },
                       {
                         value: "cpu",

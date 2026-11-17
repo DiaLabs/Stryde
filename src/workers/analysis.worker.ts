@@ -7,14 +7,9 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from "../lib/types";
-import { DEFAULT_POLICY, selectBallCandidates, selectPeople } from "../lib/analysis/detections";
-import type { RgbaImage } from "../lib/vision/features";
-import { frameFeatures } from "../lib/vision/frame";
-import { BALL_CROP, cropCenter, cropRect, cropToFrame, mergeBallCandidates, needsCropPass, updateCropState, type BallCropState } from "../lib/vision/ballcrop";
-import { ballGrass } from "../lib/vision/frame";
-import { estimateMotion, makeThumb, thumbSignature, type Thumb } from "../lib/vision/motion";
+import { grassFraction, jerseyColor, type RgbaImage } from "../lib/vision/features";
+import { estimateMotion, makeThumb, type Thumb } from "../lib/vision/motion";
 import { AssociationTracker } from "../lib/vision/tracker";
-import { requestHardwareAdapter } from "../lib/webgpu";
 import { decodeYolo, letterboxParams, toTensorData } from "../lib/vision/yolo";
 
 declare const self: DedicatedWorkerGlobalScope & { ort?: typeof OrtTypes };
@@ -25,14 +20,11 @@ let settings: DetectorSettings | null = null;
 let provider: ExecutionProvider = "wasm";
 const tracker = new AssociationTracker();
 let prevThumb: Thumb | null = null;
-let cropState: BallCropState | null = null;
 
 let inputCanvas: OffscreenCanvas | null = null;
 let inputCtx: OffscreenCanvasRenderingContext2D | null = null;
 let frameCanvas: OffscreenCanvas | null = null;
 let frameCtx: OffscreenCanvasRenderingContext2D | null = null;
-// Reused across frames; safe because frames are processed strictly one at a time.
-let tensorBuf: Float32Array | null = null;
 
 const post = (msg: WorkerResponse) => self.postMessage(msg);
 
@@ -49,10 +41,14 @@ function validateModelBuffer(buf: ArrayBuffer, modelUrl: string): void {
   }
 }
 
-/** A WebGPU adapter on a real graphics card (never the software emulator), or null. */
-async function hardwareAdapter(): Promise<unknown> {
-  const gpu = (self.navigator as Navigator & { gpu?: Parameters<typeof requestHardwareAdapter>[0] }).gpu;
-  return (await requestHardwareAdapter(gpu)).adapter;
+async function hasWebGpu(): Promise<boolean> {
+  const gpu = (self.navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  if (!gpu) return false;
+  try {
+    return !!(await gpu.requestAdapter());
+  } catch {
+    return false;
+  }
 }
 
 async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuffer) {
@@ -60,7 +56,6 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
   const warnings: string[] = [];
   if (!ort) {
     try {
-      // WebGPU and WebAssembly backends (the WebGL backend can't run YOLO11: no Split operator)
       self.importScripts(ortBase + "ort.webgpu.min.js");
       ort = self.ort ?? null;
     } catch (e) {
@@ -92,47 +87,23 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
       graphOptimizationLevel: "all",
     });
     // warm-up run validates operator support on this provider
-    try {
-      const size = s.inputSize;
-      const dummy = new ort!.Tensor("float32", new Float32Array(3 * size * size), [1, 3, size, size]);
-      const out = await sess.run({ [sess.inputNames[0]]: dummy });
-      // a GPU backend without the precision it needs returns NaNs instead of failing
-      const first = out[sess.outputNames[0]];
-      const data = (await first.getData()) as Float32Array;
-      for (let i = 0; i < data.length; i += 997) if (!Number.isFinite(data[i])) throw new Error("the backend returned invalid numbers");
-      for (const k of Object.keys(out)) out[k].dispose?.();
-    } catch (e) {
-      // release GPU memory held by the failed session before falling back
-      await sess.release().catch(() => undefined);
-      throw e;
-    }
+    const size = s.inputSize;
+    const dummy = new ort!.Tensor("float32", new Float32Array(3 * size * size), [1, 3, size, size]);
+    const out = await sess.run({ [sess.inputNames[0]]: dummy });
+    for (const k of Object.keys(out)) out[k].dispose?.();
     return sess;
   };
 
-  await session?.release().catch(() => undefined);
   session = null;
-  tensorBuf = null;
-  const adapter = s.preferredProvider === "webgpu" ? await hardwareAdapter() : null;
-  const webgpu = !!adapter;
-  if (webgpu) {
+  if (s.preferredProvider === "webgpu" && (await hasWebGpu())) {
     try {
-      // run on exactly the adapter checked above (not one ONNX Runtime picks on its own)
-      const env = ort!.env.webgpu as unknown as { adapter?: unknown; powerPreference?: string };
-      env.powerPreference = "high-performance";
-      if (!env.adapter) env.adapter = adapter;
       session = await tryCreate("webgpu");
       provider = "webgpu";
     } catch (e) {
-      if (s.allowWasmFallback === false) {
-        throw Object.assign(new Error(`WebGPU initialization failed (${String((e as Error).message ?? e).slice(0, 120)})`), {
-          code: "webgpu_failed",
-        });
-      }
       warnings.push(`WebGPU initialization failed (${String((e as Error).message ?? e).slice(0, 120)}); using WebAssembly (CPU), which is slower.`);
     }
-  }
-  if (!session && s.preferredProvider !== "wasm" && !webgpu) {
-    warnings.push("This browser offers no WebGPU on a graphics card, so the GPU can't be used; using the processor (WebAssembly), which is slower.");
+  } else if (s.preferredProvider === "webgpu") {
+    warnings.push("WebGPU is not available in this browser; using WebAssembly (CPU), which is slower.");
   }
   if (!session) {
     try {
@@ -149,17 +120,7 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
   inputCtx = inputCanvas.getContext("2d", { willReadFrequently: true });
   tracker.reset();
   prevThumb = null;
-  cropState = null;
   post({ type: "ready", provider, warnings });
-}
-
-/**
- * Canvas resampling for a scale factor. "high" matters only for big downscales (4K → 960), where
- * the default aliases and can erase the ball; for upscales and mild downscales it costs tens of
- * milliseconds a frame on the CPU for no visible gain.
- */
-function smoothingFor(scale: number): ImageSmoothingQuality {
-  return scale < 0.5 ? "high" : "low";
 }
 
 async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) {
@@ -174,7 +135,6 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   if (!frameCanvas || frameCanvas.width !== fw || frameCanvas.height !== fh) {
     frameCanvas = new OffscreenCanvas(fw, fh);
     frameCtx = frameCanvas.getContext("2d", { willReadFrequently: true });
-    if (frameCtx) frameCtx.imageSmoothingQuality = smoothingFor(fw / W);
   }
   frameCtx!.drawImage(bitmap, 0, 0, fw, fh);
   const frameData = frameCtx!.getImageData(0, 0, fw, fh);
@@ -185,11 +145,10 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   const lb = letterboxParams(W, H, size);
   inputCtx.fillStyle = "rgb(114,114,114)";
   inputCtx.fillRect(0, 0, size, size);
-  inputCtx.imageSmoothingQuality = smoothingFor(lb.scale);
   inputCtx.drawImage(bitmap, lb.padX, lb.padY, Math.round(W * lb.scale), Math.round(H * lb.scale));
+  bitmap.close();
   const rgba = inputCtx.getImageData(0, 0, size, size).data;
-  tensorBuf = toTensorData(rgba, size, tensorBuf ?? undefined);
-  const tensor = new ort.Tensor("float32", tensorBuf, [1, 3, size, size]);
+  const tensor = new ort.Tensor("float32", toTensorData(rgba, size), [1, 3, size, size]);
 
   const t0 = performance.now();
   const outputs = await session.run({ [session.inputNames[0]]: tensor });
@@ -211,55 +170,42 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   let motionX = 0;
   let motionY = 0;
   let sceneCut = false;
-  let motionResidual = 0;
   if (prevThumb) {
     const m = estimateMotion(prevThumb, thumb);
     motionX = m.dx;
     motionY = m.dy;
     sceneCut = m.sceneCut;
-    motionResidual = m.residual;
   }
   prevThumb = thumb;
 
-  // Features for every detection; the pipeline decides offline which are players and which
-  // candidate is the ball. The online tracker here only drives the live processing preview.
-  const feats = frameFeatures(decoded, img);
+  // Keep on-pitch people: plausible size/shape and grass around the feet.
+  const players = decoded.players
+    .filter((d) => {
+      const b = d.box;
+      if (b.height < 0.025 || b.width < 0.004) return false;
+      const aspect = b.height / Math.max(1e-4, b.width);
+      if (aspect < 0.9 || aspect > 5.5) return false;
+      if (b.height > 0.6) return false;
+      const g = grassFraction(img, b.x + b.width / 2, b.y + b.height, Math.max(b.width, 0.01), Math.max(b.height * 0.15, 0.008));
+      return g >= 0.2;
+    })
+    .map((d) => ({ box: d.box, confidence: d.score, color: jerseyColor(img, d.box) }));
 
-  // Zoomed ball pass: a second detector run on a crop around where the ball probably is, so
-  // a few-pixel broadcast ball is seen ~2.5x bigger (skipped when the full frame already has a
-  // confident ball).
-  let ballCandidates = feats.balls;
-  if (settings.ballCropPass !== false && needsCropPass(decoded.balls)) {
-    const center = cropCenter(cropState, t, feats.people);
-    if (center) {
-      const r = cropRect(center, W, H);
-      const clb = letterboxParams(r.side, r.side, size);
-      const cw = Math.round(r.side * clb.scale);
-      inputCtx.fillStyle = "rgb(114,114,114)";
-      inputCtx.fillRect(0, 0, size, size);
-      inputCtx.imageSmoothingQuality = smoothingFor(cw / r.side);
-      inputCtx.drawImage(bitmap, r.x, r.y, r.side, r.side, clb.padX, clb.padY, cw, cw);
-      tensorBuf = toTensorData(inputCtx.getImageData(0, 0, size, size).data, size, tensorBuf);
-      const cropTensor = new ort.Tensor("float32", tensorBuf, [1, 3, size, size]);
-      const cropOut = await session.run({ [session.inputNames[0]]: cropTensor });
-      const co = cropOut[session.outputNames[0]];
-      const found = decodeYolo((await co.getData()) as Float32Array, co.dims, clb, { player: 1.01, ball: BALL_CROP.threshold }, 0.5).balls;
-      cropTensor.dispose();
-      for (const k of Object.keys(cropOut)) cropOut[k].dispose?.();
-      const cands = found
-        .filter((d) => d.box.width * r.side <= 40 && d.box.height * r.side <= 40)
-        .map((d) => {
-          const box = cropToFrame(d.box, r, W, H);
-          return { box, confidence: d.score, grass: ballGrass(img, box), source: "crop" as const };
-        });
-      ballCandidates = mergeBallCandidates(feats.balls, cands);
-    }
-  }
-  bitmap.close();
-  cropState = updateCropState(cropState, ballCandidates, t);
-  const players = selectPeople(feats.people);
-  const previewBall = selectBallCandidates(ballCandidates, { ...DEFAULT_POLICY, ball: { ...DEFAULT_POLICY.ball, keep: 1 } });
-  const balls = previewBall.map((b) => ({ box: b.box, confidence: b.confidence }));
+  const ballCandidates = decoded.balls
+    .filter((d) => {
+      const b = d.box;
+      if (b.width > 0.048 || b.height > 0.065) return false;
+      const ar = b.width / Math.max(1e-4, b.height);
+      if (ar < 0.45 || ar > 2.2) return false;
+      const cx = b.x + b.width / 2;
+      const cy = b.y + b.height / 2;
+      // Airborne balls often sit above grass — relax the pitch check when high in frame or confident.
+      if (cy < 0.5 || d.score >= 0.22) return true;
+      const g = grassFraction(img, cx, cy, Math.max(b.width * 2.5, 0.01), Math.max(b.height * 2.5, 0.015));
+      return g >= 0.1;
+    })
+    .sort((a, b) => b.score - a.score);
+  const balls = ballCandidates.length ? [{ box: ballCandidates[0].box, confidence: ballCandidates[0].score }] : [];
 
   const ids = tracker.update(players, t, motionX, motionY, sceneCut);
   const record: WorkerFrameRecord = {
@@ -273,10 +219,6 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
     motionY,
     sceneCut,
     inferenceMs,
-    people: feats.people,
-    ballCandidates,
-    motionResidual,
-    signature: thumbSignature(thumb),
   };
   post({ type: "frame", record });
 }
@@ -300,7 +242,6 @@ async function handle(msg: WorkerRequest) {
       case "reset":
         tracker.reset();
         prevThumb = null;
-        cropState = null;
         break;
       case "dispose":
         await session?.release();

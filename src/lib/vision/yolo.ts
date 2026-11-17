@@ -19,13 +19,10 @@ export function letterboxParams(srcW: number, srcH: number, size: number): Lette
   return { scale, padX: Math.floor((size - w) / 2), padY: Math.floor((size - h) / 2), size, srcW, srcH };
 }
 
-/**
- * RGBA (size×size, letterboxed) → CHW float32 normalized to 0..1.
- * Pass `out` to reuse a buffer across frames (an input tensor at 960 px is ~11 MB).
- */
-export function toTensorData(rgba: Uint8ClampedArray, size: number, out?: Float32Array): Float32Array {
+/** RGBA (size×size, letterboxed) → CHW float32 normalized to 0..1 */
+export function toTensorData(rgba: Uint8ClampedArray, size: number): Float32Array {
   const area = size * size;
-  if (!out || out.length !== 3 * area) out = new Float32Array(3 * area);
+  const out = new Float32Array(3 * area);
   for (let i = 0, p = 0; i < area; i++, p += 4) {
     out[i] = rgba[p] / 255;
     out[i + area] = rgba[p + 1] / 255;

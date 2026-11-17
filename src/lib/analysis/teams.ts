@@ -104,10 +104,7 @@ function dropMinorityClusters(samples: Sample[]): Sample[] {
   const minority = w0 <= w1 ? 0 : 1;
   const minW = Math.min(w0, w1);
   const minCount = clusterCount(labels, minority);
-  // a 2-track cluster is only noise (refs, keepers) when there are plenty of other tracks;
-  // in short or zoomed clips it can be a whole team
-  const tinyCluster = minCount <= 1 || (minCount <= 2 && samples.length >= 8);
-  if (minW / total < 0.15 || tinyCluster) {
+  if (minW / total < 0.15 || minCount <= 2) {
     return samples.filter((_, i) => labels[i] !== minority);
   }
   return samples;
@@ -134,15 +131,8 @@ export function estimateTeamColors(tracks: ObjectTrack[]): TeamColorModel | null
   if (items.length < 4) items = trackSamples(tracks, 1);
   if (items.length < 2) return null;
 
-  // Referee-like colours (yellow, orange, pink) are only discarded when they are a small share
-  // of the evidence; a whole team in yellow must not be filtered out.
-  const all = items.map((i) => i.sample);
-  const official = all.filter((s) => isLikelyOfficialColor(s.color));
-  const officialWeight = official.reduce((w, s) => w + s.weight, 0);
-  const totalWeight = all.reduce((w, s) => w + s.weight, 0);
-  const officialIsTeam = official.length >= 3 && officialWeight / totalWeight >= 0.25;
-  let samples = officialIsTeam ? all : all.filter((s) => !isLikelyOfficialColor(s.color));
-  if (samples.length < 2) samples = all;
+  let samples = items.map((i) => i.sample).filter((s) => !isLikelyOfficialColor(s.color));
+  if (samples.length < 2) samples = items.map((i) => i.sample);
   samples = dropMinorityClusters(samples);
   if (samples.length < 2) return null;
 
@@ -195,25 +185,6 @@ export function userColorModel(teamAHex: string, teamBHex: string, estimated: Te
 export function classifyTracks(tracks: ObjectTrack[], model: TeamColorModel): void {
   const tolA = Math.max(20, 2.6 * model.spreadA);
   const tolB = Math.max(20, 2.6 * model.spreadB);
-  // if a team itself wears a referee-like colour, matching players belong to that team
-  const teamAOfficialLike = isLikelyOfficialColor(model.teamA);
-  const teamBOfficialLike = isLikelyOfficialColor(model.teamB);
-
-  /** classify one colour: team, or unknown (referee-like, too far from both, or ambiguous) */
-  const classify = (color: LabColor): { team: TeamId; margin: number } => {
-    const dA = deltaE(color, model.teamA);
-    const dB = deltaE(color, model.teamB);
-    const nearest: TeamId = dA <= dB ? "team_a" : "team_b";
-    const nearestOfficialLike = nearest === "team_a" ? teamAOfficialLike : teamBOfficialLike;
-    if (isLikelyOfficialColor(color) && !nearestOfficialLike) return { team: "unknown", margin: 0 };
-    const dNear = Math.min(dA, dB);
-    const dFar = Math.max(dA, dB);
-    const margin = (dFar - dNear) / (dFar + dNear + 1e-6);
-    const tol = nearest === "team_a" ? tolA : tolB;
-    if (dNear > tol || margin < 0.12) return { team: "unknown", margin };
-    return { team: nearest, margin };
-  };
-
   for (const t of tracks) {
     if (t.objectType !== "player") continue;
     if (!t.jerseyColor) {
@@ -221,33 +192,27 @@ export function classifyTracks(tracks: ObjectTrack[], model: TeamColorModel): vo
       t.teamConfidence = 0;
       continue;
     }
-    const evidence = Math.min(1, t.observations.length / 5);
-    const obs = t.observationColors ?? [];
-    if (obs.length >= 3) {
-      // Per-frame vote: shadows, sunlight and brief occlusions change single-frame colours, and
-      // a track's single median colour can sit between both kits. Majority of confident frames wins.
-      let a = 0;
-      let b = 0;
-      let marginSum = 0;
-      for (const c of obs) {
-        const r = classify(c);
-        if (r.team === "team_a") a++;
-        else if (r.team === "team_b") b++;
-        if (r.team !== "unknown") marginSum += r.margin;
-      }
-      const voted = a + b;
-      const share = voted ? Math.max(a, b) / voted : 0;
-      if (voted >= 2 && share >= 0.65 && voted / obs.length >= 0.3) {
-        t.teamId = a >= b ? "team_a" : "team_b";
-        const meanMargin = marginSum / voted;
-        t.teamConfidence = Math.max(0, Math.min(1, meanMargin * 2.2 * share)) * (0.6 + 0.4 * evidence);
-        continue;
-      }
+    if (isLikelyOfficialColor(t.jerseyColor)) {
+      t.teamId = "unknown";
+      t.teamConfidence = 0;
+      continue;
     }
-    const r = classify(t.jerseyColor);
-    const conf = Math.max(0, Math.min(1, r.margin * 2.2)) * (0.6 + 0.4 * evidence) * (r.team === "unknown" ? 0 : 1);
-    t.teamId = r.team;
-    t.teamConfidence = conf;
+    const dA = deltaE(t.jerseyColor, model.teamA);
+    const dB = deltaE(t.jerseyColor, model.teamB);
+    const nearest: TeamId = dA <= dB ? "team_a" : "team_b";
+    const dNear = Math.min(dA, dB);
+    const dFar = Math.max(dA, dB);
+    const tol = nearest === "team_a" ? tolA : tolB;
+    const margin = (dFar - dNear) / (dFar + dNear + 1e-6);
+    const evidence = Math.min(1, t.observations.length / 5);
+    const conf = Math.max(0, Math.min(1, margin * 2.2)) * (0.6 + 0.4 * evidence) * (dNear <= tol ? 1 : 0);
+    if (dNear > tol || margin < 0.12) {
+      t.teamId = "unknown";
+      t.teamConfidence = conf;
+    } else {
+      t.teamId = nearest;
+      t.teamConfidence = conf;
+    }
   }
 }
 

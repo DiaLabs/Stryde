@@ -12,16 +12,11 @@
     "build": "pnpm run assets && next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run",
-    "eval": "tsx scripts/eval/run.ts",
-    "eval:extract": "tsx scripts/eval/extract.ts",
-    "eval:reference": "tsx scripts/eval/reference.ts"
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "clsx": "^2.1.1",
     "lucide-react": "^1.73.0",
-    "mp4box": "2.5.0",
     "next": "16.4.6",
     "onnxruntime-web": "^1.31.1",
     "react": "19.3.1",
@@ -36,10 +31,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.15.0",
     "eslint-config-next": "16.4.6",
-    "onnxruntime-node": "^1.31.1",
     "tailwindcss": "^4.3.5",
-    "tsx": "^4.23.15",
-    "typescript": "^6.0.3",
-    "vitest": "^5.1.0"
+    "typescript": "^6.0.3"
   }
 }

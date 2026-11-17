@@ -87,62 +87,22 @@ export function estimateMotion(prev: Thumb, curr: Thumb): MotionEstimate {
       if (c < best.cost) best = { dx, dy, cost: c };
     }
   }
-  // refine at full resolution around the coarse winner (costs must share one sampling step)
+  // refine
   const coarse = best;
-  best = { dx: coarse.dx, dy: coarse.dy, cost: sad(curr.grad, prev.grad, W, H, coarse.dx, coarse.dy, 1, margin) };
   for (let dy = coarse.dy - 2; dy <= coarse.dy + 2; dy++) {
     for (let dx = coarse.dx - 2; dx <= coarse.dx + 2; dx++) {
-      if (dx === coarse.dx && dy === coarse.dy) continue;
       const c = sad(curr.grad, prev.grad, W, H, dx, dy, 1, margin);
-      if (c < best.cost) best = { dx, dy, cost: c };
+      if (c < best.cost || (dx === coarse.dx && dy === coarse.dy)) {
+        if (c <= best.cost) best = { dx, dy, cost: c };
+      }
     }
   }
-  // Sub-pixel refinement: fit a parabola through the cost at ±1 px on each axis. Without it,
-  // slow pans under half a pixel per sample read as zero and the camera offset drifts.
-  const subpixel = (cm: number, c0: number, cp: number) => {
-    const denom = cm - 2 * c0 + cp;
-    if (!Number.isFinite(denom) || denom <= 1e-9) return 0;
-    return Math.max(-0.5, Math.min(0.5, (cm - cp) / (2 * denom)));
-  };
-  const fx = subpixel(
-    sad(curr.grad, prev.grad, W, H, best.dx - 1, best.dy, 1, margin),
-    best.cost,
-    sad(curr.grad, prev.grad, W, H, best.dx + 1, best.dy, 1, margin)
-  );
-  const fy = subpixel(
-    sad(curr.grad, prev.grad, W, H, best.dx, best.dy - 1, 1, margin),
-    best.cost,
-    sad(curr.grad, prev.grad, W, H, best.dx, best.dy + 1, 1, margin)
-  );
   const grayResidual = sad(curr.gray, prev.gray, W, H, best.dx, best.dy, 2, margin);
-  // A cut is decided by appearance only. A fast pan that hits the search limit is still
-  // camera motion (clamped), not a cut — treating it as one used to wipe every track.
-  const sceneCut = grayResidual > 0.16;
+  const sceneCut = grayResidual > 0.16 || Math.abs(best.dx) >= R - 1;
   return {
-    dx: sceneCut ? 0 : (best.dx + fx) / W,
-    dy: sceneCut ? 0 : (best.dy + fy) / H,
+    dx: sceneCut ? 0 : best.dx / W,
+    dy: sceneCut ? 0 : best.dy / H,
     sceneCut,
     residual: grayResidual,
   };
-}
-
-/**
- * Compact appearance signature of a thumbnail for cut detection: 4×4 grid of mean luminance
- * plus an 8-bin luminance histogram (24 numbers, each 0..1).
- */
-export function thumbSignature(t: Thumb): number[] {
-  const grid = new Array(16).fill(0);
-  const counts = new Array(16).fill(0);
-  const hist = new Array(8).fill(0);
-  for (let y = 0; y < t.height; y++) {
-    for (let x = 0; x < t.width; x++) {
-      const v = t.gray[y * t.width + x];
-      const g = Math.min(3, Math.floor((y / t.height) * 4)) * 4 + Math.min(3, Math.floor((x / t.width) * 4));
-      grid[g] += v;
-      counts[g]++;
-      hist[Math.min(7, Math.floor(v * 8))]++;
-    }
-  }
-  const n = t.width * t.height;
-  return [...grid.map((v, i) => v / Math.max(1, counts[i])), ...hist.map((v) => v / n)];
 }

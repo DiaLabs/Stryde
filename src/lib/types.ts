@@ -2,7 +2,6 @@
 
 export type TeamId = "team_a" | "team_b" | "unknown";
 export type AnalysisMode = "faster" | "detailed";
-/** webgpu runs on the graphics card; wasm runs on the processor */
 export type ExecutionProvider = "webgpu" | "wasm";
 export type QualityLevel = "high" | "medium" | "low" | "unavailable";
 
@@ -81,9 +80,6 @@ export interface TrackObservation {
   pitchX?: number;
   pitchY?: number;
   speedMetersPerSecond?: number;
-  /** pitch position smoothed over ±0.6 s (calibrated only); distance is integrated along this */
-  smoothPitchX?: number;
-  smoothPitchY?: number;
   confidence: number;
 }
 
@@ -96,8 +92,6 @@ export interface ObjectTrack {
   status: "active" | "stale" | "ended";
   /** Median jersey color of the track (internal, used for team classification). */
   jerseyColor?: LabColor;
-  /** Per-observation jersey colours (internal, for the per-frame team vote). */
-  observationColors?: LabColor[];
 }
 
 export interface PossessionSample {
@@ -220,8 +214,6 @@ export interface BallObservation {
   confidence: number;
   pitchX?: number;
   pitchY?: number;
-  /** filled in between two detections of the same run (not seen by the detector) */
-  interpolated?: boolean;
 }
 
 /** Per sampled frame information shared by renderer and analytics. */
@@ -272,20 +264,12 @@ export interface WorkerFrameRecord {
   frameIndex: number;
   timestampSeconds: number;
   players: WorkerPlayerDetection[];
-  balls: { box: BoundingBox; confidence: number; grass?: number }[];
+  balls: { box: BoundingBox; confidence: number }[];
   /** frame-to-frame camera shift in normalized units */
   motionX: number;
   motionY: number;
   sceneCut: boolean;
   inferenceMs: number;
-  /** every person detection with its features; the pipeline filters and tracks these offline */
-  people?: import("./vision/frame").PersonDetection[];
-  /** top ball candidates with features; the pipeline chooses among them offline */
-  ballCandidates?: import("./vision/frame").BallCandidate[];
-  /** camera-motion alignment residual (0..1); spikes at camera cuts */
-  motionResidual?: number;
-  /** appearance signature of the frame thumbnail, for offline cut detection */
-  signature?: number[];
 }
 
 export interface DetectorSettings {
@@ -295,13 +279,6 @@ export interface DetectorSettings {
   ballThreshold: number;
   iouThreshold: number;
   preferredProvider: ExecutionProvider;
-  /**
-   * When false and WebGPU fails, the worker reports "webgpu_failed" instead of building the
-   * same model on WebAssembly (the caller then picks a smaller CPU-friendly model).
-   */
-  allowWasmFallback?: boolean;
-  /** run a second, zoomed detector pass for the ball (default on) */
-  ballCropPass?: boolean;
 }
 
 export type WorkerRequest =
