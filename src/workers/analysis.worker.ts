@@ -62,26 +62,13 @@ async function hasWebGpu(): Promise<boolean> {
   return false;
 }
 
-/** WebGL2 on a real graphics card (not a software rasteriser), usable from this worker. */
-function hasHardwareWebGl(): boolean {
-  try {
-    const gl = new OffscreenCanvas(1, 1).getContext("webgl2") as WebGL2RenderingContext | null;
-    if (!gl) return false;
-    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
-    const renderer = String(gl.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
-    return !/swiftshader|llvmpipe|softpipe|software/i.test(renderer);
-  } catch {
-    return false;
-  }
-}
-
 async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuffer) {
   settings = s;
   const warnings: string[] = [];
   if (!ort) {
     try {
-      // the combined bundle: WebGPU, WebGL and WebAssembly backends
-      self.importScripts(ortBase + "ort.all.min.js");
+      // WebGPU and WebAssembly backends (the WebGL backend can't run YOLO11: no Split operator)
+      self.importScripts(ortBase + "ort.webgpu.min.js");
       ort = self.ort ?? null;
     } catch (e) {
       throw Object.assign(new Error("Could not load the inference runtime. " + String(e)), { code: "runtime_load" });
@@ -132,7 +119,8 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
   await session?.release().catch(() => undefined);
   session = null;
   tensorBuf = null;
-  if (s.preferredProvider === "webgpu" && (await hasWebGpu())) {
+  const webgpu = s.preferredProvider === "webgpu" && (await hasWebGpu());
+  if (webgpu) {
     try {
       session = await tryCreate("webgpu");
       provider = "webgpu";
@@ -145,19 +133,8 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
       warnings.push(`WebGPU initialization failed (${String((e as Error).message ?? e).slice(0, 120)}); using WebAssembly (CPU), which is slower.`);
     }
   }
-  // Graphics card through WebGL when WebGPU is off (common in Chrome on Linux): slower than
-  // WebGPU, still much faster than the processor.
-  if (!session && s.preferredProvider !== "wasm" && s.allowWasmFallback !== false && hasHardwareWebGl()) {
-    try {
-      session = await tryCreate("webgl");
-      provider = "webgl";
-      warnings.push("WebGPU isn't enabled in this browser, so the graphics card is used through WebGL.");
-    } catch (e) {
-      warnings.push(`The graphics card couldn't run the model through WebGL (${String((e as Error).message ?? e).slice(0, 100)}); using the processor.`);
-    }
-  }
-  if (!session && s.preferredProvider !== "wasm") {
-    warnings.push("No graphics card is available to this browser; using the processor (WebAssembly), which is slower.");
+  if (!session && s.preferredProvider !== "wasm" && !webgpu) {
+    warnings.push("WebGPU isn't available in this browser, so the GPU can't be used; using the processor (WebAssembly), which is slower.");
   }
   if (!session) {
     try {
@@ -172,12 +149,19 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
 
   inputCanvas = new OffscreenCanvas(s.inputSize, s.inputSize);
   inputCtx = inputCanvas.getContext("2d", { willReadFrequently: true });
-  // the default "low" smoothing aliases on large downscales (4K → 960) and can erase the ball
-  if (inputCtx) inputCtx.imageSmoothingQuality = "high";
   tracker.reset();
   prevThumb = null;
   cropState = null;
   post({ type: "ready", provider, warnings });
+}
+
+/**
+ * Canvas resampling for a scale factor. "high" matters only for big downscales (4K → 960), where
+ * the default aliases and can erase the ball; for upscales and mild downscales it costs tens of
+ * milliseconds a frame on the CPU for no visible gain.
+ */
+function smoothingFor(scale: number): ImageSmoothingQuality {
+  return scale < 0.5 ? "high" : "low";
 }
 
 async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) {
@@ -192,7 +176,7 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   if (!frameCanvas || frameCanvas.width !== fw || frameCanvas.height !== fh) {
     frameCanvas = new OffscreenCanvas(fw, fh);
     frameCtx = frameCanvas.getContext("2d", { willReadFrequently: true });
-    if (frameCtx) frameCtx.imageSmoothingQuality = "high";
+    if (frameCtx) frameCtx.imageSmoothingQuality = smoothingFor(fw / W);
   }
   frameCtx!.drawImage(bitmap, 0, 0, fw, fh);
   const frameData = frameCtx!.getImageData(0, 0, fw, fh);
@@ -203,6 +187,7 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
   const lb = letterboxParams(W, H, size);
   inputCtx.fillStyle = "rgb(114,114,114)";
   inputCtx.fillRect(0, 0, size, size);
+  inputCtx.imageSmoothingQuality = smoothingFor(lb.scale);
   inputCtx.drawImage(bitmap, lb.padX, lb.padY, Math.round(W * lb.scale), Math.round(H * lb.scale));
   const rgba = inputCtx.getImageData(0, 0, size, size).data;
   tensorBuf = toTensorData(rgba, size, tensorBuf ?? undefined);
@@ -254,6 +239,7 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
       const cw = Math.round(r.side * clb.scale);
       inputCtx.fillStyle = "rgb(114,114,114)";
       inputCtx.fillRect(0, 0, size, size);
+      inputCtx.imageSmoothingQuality = smoothingFor(cw / r.side);
       inputCtx.drawImage(bitmap, r.x, r.y, r.side, r.side, clb.padX, clb.padY, cw, cw);
       tensorBuf = toTensorData(inputCtx.getImageData(0, 0, size, size).data, size, tensorBuf);
       const cropTensor = new ort.Tensor("float32", tensorBuf, [1, 3, size, size]);

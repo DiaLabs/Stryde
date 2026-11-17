@@ -71,7 +71,7 @@ export function CapabilityCard() {
           {!desc
             ? "Checking this browser…"
             : accel.kind === "gpu"
-              ? `${desc.long}. ${accel.api === "WebGPU" ? "Both modes work well here, including More detailed." : "Faster mode is quick here; More detailed is best with WebGPU."}${desc.hint ? ` ${desc.hint}` : ""}`
+              ? `${desc.long}. Both modes work well here, including More detailed.`
               : `${desc.long}. Use Faster mode and expect a one-minute clip to take several minutes.${desc.hint ? ` ${desc.hint}` : ""}`}
         </Row>
         <Row icon={Cpu} term="Processor">

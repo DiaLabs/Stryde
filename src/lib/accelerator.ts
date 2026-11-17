@@ -4,16 +4,17 @@ import { useSyncExternalStore } from "react";
 import type { DevicePreference, ExecutionProvider } from "./types";
 
 /**
- * Which processor analysis will run on, in order of preference:
- *   1. GPU through WebGPU (fastest)
- *   2. GPU through WebGL (when the browser keeps WebGPU off, common in Chrome on Linux)
- *   3. CPU through WebAssembly (no usable graphics card)
+ * Which processor analysis will run on:
+ *   1. GPU through WebGPU
+ *   2. CPU through WebAssembly otherwise. The detection model can't run on ONNX Runtime's WebGL
+ *      backend (it lacks operators YOLO11 needs, e.g. Split), so a GPU the browser only exposes
+ *      through WebGL can't be used; the UI says how to switch WebGPU on.
  * The analysis worker follows the same order. Detected once per page and shared.
  */
 export interface Accelerator {
   kind: "checking" | "gpu" | "cpu";
-  api?: "WebGPU" | "WebGL" | "WebAssembly";
-  /** human-readable device name when the browser reveals it, e.g. "NVIDIA GeForce GTX 1650" */
+  api?: "WebGPU" | "WebAssembly";
+  /** human-readable GPU name when the browser reveals it, e.g. "NVIDIA GeForce GTX 1650" */
   device?: string;
   /** WebGPU exists in this browser but returned no adapter (switched off or blocklisted) */
   webgpuBlocked?: boolean;
@@ -60,9 +61,8 @@ async function detect(): Promise<Accelerator> {
       }
     }
   }
-  const gl = webglDevice();
-  if (gl) return { kind: "gpu", api: "WebGL", device: gl, webgpuBlocked: !!gpu };
-  return { kind: "cpu", api: "WebAssembly", webgpuBlocked: !!gpu };
+  // a graphics card is there, but only WebGL reaches it: name it so the UI can say what to turn on
+  return { kind: "cpu", api: "WebAssembly", device: webglDevice() ?? undefined, webgpuBlocked: !!gpu };
 }
 
 function start() {
@@ -93,13 +93,14 @@ export function describeAccelerator(a: Accelerator): { short: string; long: stri
   if (a.kind === "checking") return null;
   if (a.kind === "gpu") {
     const on = a.device ? ` (${a.device})` : "";
-    return a.api === "WebGPU"
-      ? { short: "GPU", long: `Runs on your GPU${on} through WebGPU` }
-      : {
-          short: "GPU",
-          long: `Runs on your GPU${on} through WebGL`,
-          hint: "For more speed, turn on WebGPU in chrome://flags (Unsafe WebGPU Support, and Vulkan on Linux), then restart Chrome.",
-        };
+    return { short: "GPU", long: `Runs on your GPU${on} through WebGPU` };
+  }
+  if (a.device) {
+    return {
+      short: "CPU",
+      long: `Runs on your CPU: this device has a GPU (${a.device}), but WebGPU is off in this browser`,
+      hint: "To use the GPU, turn on WebGPU: in Chrome open chrome://flags, enable Unsafe WebGPU Support (and Vulkan on Linux), then restart Chrome.",
+    };
   }
   return {
     short: "CPU",
@@ -152,9 +153,9 @@ export function runningOn(
   accel: Accelerator
 ): { kind: "gpu" | "cpu"; short: string; sentence: string; note?: string } | null {
   if (!provider) return null;
-  if (provider === "webgpu" || provider === "webgl") {
+  if (provider === "webgpu") {
     const name = accel.device ? `${accel.device}, ` : "";
-    return { kind: "gpu", short: "GPU", sentence: `Running on the GPU of this device (${name}${provider === "webgpu" ? "WebGPU" : "WebGL"}).` };
+    return { kind: "gpu", short: "GPU", sentence: `Running on the GPU of this device (${name}WebGPU).` };
   }
   if (chosen === "cpu") {
     return {
@@ -167,6 +168,9 @@ export function runningOn(
   return {
     kind: "cpu",
     short: "CPU",
-    sentence: "Running on the CPU of this device: the browser gave no access to the GPU.",
+    sentence: accel.device
+      ? "Running on the CPU of this device: WebGPU is off in this browser, so the GPU can't be used."
+      : "Running on the CPU of this device: the browser gave no access to the GPU.",
+    note: accel.device ? "Turn on WebGPU (chrome://flags, Unsafe WebGPU Support, and Vulkan on Linux), restart Chrome, and analysis will use the GPU." : undefined,
   };
 }

@@ -53,7 +53,7 @@ export function QualityPanel({ result, className }: { result: AnalysisResult; cl
         {p.model} <Quiet>{p.inputSize} px input</Quiet>
       </>,
     ],
-    ["Ran on", p.provider === "webgpu" ? "GPU of this device (WebGPU)" : p.provider === "webgl" ? "GPU of this device (WebGL)" : "CPU of this device (WebAssembly)"],
+    ["Ran on", p.provider === "webgpu" ? "GPU of this device (WebGPU)" : "CPU of this device (WebAssembly)"],
     [
       "Processing time",
       <>

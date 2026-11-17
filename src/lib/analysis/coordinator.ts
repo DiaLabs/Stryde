@@ -9,7 +9,8 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from "../types";
-import { seekTo, waitForEvent } from "../video";
+import { openWebCodecsReader, seekReader, type FrameReader } from "../frames";
+import { waitForEvent } from "../video";
 import type { RawAnalysis } from "./pipeline";
 import { ensureModel } from "../models/cache";
 import { MODELS } from "../models/registry";
@@ -77,13 +78,15 @@ export interface CoordinatorCallbacks {
 const MAX_CONSECUTIVE_DECODE_FAILURES = 8;
 
 /**
- * Main-thread analysis coordinator: seeks a hidden <video> to sampled timestamps,
+ * Main-thread analysis coordinator: decodes the sampled frames (WebCodecs, or by seeking a hidden
+ * <video> when the file needs it),
  * transfers frames to the inference worker with bounded in-flight work, and
  * collects per-frame records. The source video never leaves the device.
  */
 export class AnalysisCoordinator {
   private worker: Worker | null = null;
   private video: HTMLVideoElement | null = null;
+  private reader: FrameReader | null = null;
   private url: string | null = null;
   private cancelled = false;
   private stopRequested = false;
@@ -244,17 +247,16 @@ export class AnalysisCoordinator {
       try {
         // In Detailed mode, never build the large model on the CPU: fail fast and drop to the
         // smaller model instead.
-        // GPU first: WebGPU when available, else the worker tries WebGL before the processor
-        // ("wasm" = the processor only, when the user chose the CPU)
-        const r = await this.initWorker(profile, cpuOnly ? "wasm" : gpu ? "webgpu" : "webgl", modelBuffer, !isDetailedGpu);
+        // the GPU through WebGPU when available, else the processor
+        const r = await this.initWorker(profile, gpu ? "webgpu" : "wasm", modelBuffer, !isDetailedGpu);
         provider = r.provider;
         warnings.push(...r.warnings);
       } catch (e) {
         if (!isDetailedGpu || (e as AnalysisError).code !== "webgpu_failed" || this.cancelled) throw e;
         profile = MODE_PROFILES.detailed_cpu;
-        adaptations.push("WebGPU failed: switched to the smaller model at 8 samples/s (graphics card through WebGL when possible, else the processor).");
+        adaptations.push("WebGPU failed: switched to the smaller model at 8 samples/s on the processor.");
         const nBuf = await ensureModel("yolo11n");
-        const r2 = await this.initWorker(profile, "webgl", nBuf);
+        const r2 = await this.initWorker(profile, "wasm", nBuf);
         provider = r2.provider;
         warnings.push(...r2.warnings);
       }
@@ -262,7 +264,7 @@ export class AnalysisCoordinator {
       return this.fail(e as AnalysisError);
     }
     if (this.cancelled) return;
-    // the worker already explains why it chose WebGL or the processor; no second warning here
+    // the worker already explains why it fell back to the processor; no second warning here
     this.update({ provider, warnings: [...warnings, ...adaptations], progress: 0.05 });
 
     // --- frame loop
@@ -282,6 +284,14 @@ export class AnalysisCoordinator {
     let markNextAsCut = false;
     let skippedFrames = 0;
     let consecutiveFailures = 0;
+
+    // Frames come from one front-to-back decode when the browser can (much faster than a seek per
+    // frame, which re-decodes from the previous keyframe every time); else from seeking.
+    const opened = await openWebCodecsReader(this.file, times);
+    let reader: FrameReader = "unavailable" in opened ? seekReader(video, times) : opened;
+    if ("unavailable" in opened) adaptations.push(`Frames are read by seeking the video, which is slower: ${opened.unavailable}.`);
+    this.reader = reader;
+    if (this.cancelled) return this.teardown();
 
     const handleRecord = (rec: WorkerFrameRecord) => {
       if (trackIdOffset > 0) {
@@ -324,23 +334,28 @@ export class AnalysisCoordinator {
     for (let i = 0; i < total; i++) {
       if (this.cancelled) return;
       if (this.stopRequested) break;
-      try {
-        await seekTo(video, times[i]);
-      } catch {
-        skip();
-        if (fatal) break;
-        continue;
-      }
-      if (this.cancelled) return;
-      this.drawPreview(video);
       let bitmap: ImageBitmap;
       try {
-        bitmap = await createImageBitmap(video);
+        bitmap = await reader.frame(i);
       } catch {
+        if (this.cancelled) return;
+        if (reader.kind === "webcodecs" && reader.broken) {
+          // the decoder gave up on this file: carry on from this frame by seeking
+          reader.close();
+          reader = seekReader(video, times);
+          this.reader = reader;
+          i--;
+          continue;
+        }
         skip();
         if (fatal) break;
         continue;
       }
+      if (this.cancelled) {
+        bitmap.close();
+        return;
+      }
+      this.drawPreview(bitmap);
       consecutiveFailures = 0;
       const promise = this.sendFrame(i, times[i], bitmap);
       // cancellation rejects in-flight frames that may never be awaited
@@ -353,18 +368,16 @@ export class AnalysisCoordinator {
         } catch (e) {
           const err = e as AnalysisError;
           if (this.cancelled) return;
-          if ((provider === "webgpu" || provider === "webgl") && !gpuFallbackUsed) {
+          if (provider === "webgpu" && !gpuFallbackUsed) {
             // GPU failure mid-run: restart on CPU with the smaller model and re-run the frames
             // that were in flight, so none are silently dropped.
             gpuFallbackUsed = true;
             inflight.length = 0;
             this.pending.clear();
             profile = MODE_PROFILES.faster;
-            const failedOn = provider;
             try {
               const nBuf = await ensureModel("yolo11n");
-              // step down one level: WebGPU -> WebGL (still the graphics card), WebGL -> processor
-              const r = await this.initWorker(profile, failedOn === "webgpu" ? "webgl" : "wasm", nBuf);
+              const r = await this.initWorker(profile, "wasm", nBuf);
               provider = r.provider;
             } catch (e2) {
               if (this.cancelled) return;
@@ -376,9 +389,10 @@ export class AnalysisCoordinator {
             trackIdOffset = maxId + 1;
             markNextAsCut = true;
             adaptations.push(
-              `GPU inference failed at ${times[head.index].toFixed(1)} s (${err.message}); continued ${provider === "wasm" ? "on the processor" : "on the graphics card (WebGL)"} with the smaller model. Tracks restart at that point.`
+              `GPU inference failed at ${times[head.index].toFixed(1)} s (${err.message}); continued on the processor with the smaller model. Tracks restart at that point.`
             );
             this.update({ provider, warnings: [...warnings, ...adaptations] });
+            reader.rewind(head.index);
             i = head.index - 1;
             continue;
           }
@@ -435,16 +449,16 @@ export class AnalysisCoordinator {
     this.cb.onComplete(raw);
   }
 
-  private drawPreview(video: HTMLVideoElement) {
+  private drawPreview(frame: ImageBitmap) {
     const c = this.cb.getPreviewCanvas?.() ?? null;
     if (!c) return;
     const ctx = c.getContext("2d");
     if (!ctx) return;
     if (c.width !== 480) {
       c.width = 480;
-      c.height = Math.round((480 * video.videoHeight) / video.videoWidth);
+      c.height = Math.round((480 * frame.height) / frame.width);
     }
-    ctx.drawImage(video, 0, 0, c.width, c.height);
+    ctx.drawImage(frame, 0, 0, c.width, c.height);
   }
 
   private fail(err: AnalysisError) {
@@ -476,6 +490,8 @@ export class AnalysisCoordinator {
       setTimeout(() => w.terminate(), 500);
       this.worker = null;
     }
+    this.reader?.close();
+    this.reader = null;
     if (this.video) {
       this.video.removeAttribute("src");
       this.video.load();

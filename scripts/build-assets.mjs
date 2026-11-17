@@ -10,8 +10,7 @@ const ortDist = join(root, "node_modules", "onnxruntime-web", "dist");
 const ortOut = join(root, "public", "ort");
 mkdirSync(ortOut, { recursive: true });
 for (const f of [
-  // combined bundle (WebGPU + WebGL + WebAssembly) used by the analysis worker
-  "ort.all.min.js",
+  // WebGPU + WebAssembly bundle used by the analysis worker
   "ort.webgpu.min.js",
   "ort.wasm.min.js",
   "ort.min.js",
