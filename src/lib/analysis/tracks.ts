@@ -45,6 +45,7 @@ export function buildTracks(frames: WorkerFrameRecord[]): ObjectTrack[] {
         confidence: p.confidence,
       });
       if (p.color) entry.colors.push(p.color);
+      (entry.track.observationColors ??= []).push(p.color ?? null);
     }
   }
   const lastT = frames.length ? frames[frames.length - 1].timestampSeconds : 0;

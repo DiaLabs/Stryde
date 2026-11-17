@@ -12,6 +12,32 @@ export interface Thumb {
   grad: Float32Array;
   width: number;
   height: number;
+  /** coarse layout: mean brightness and edge density on a 4x4 grid (for cut detection) */
+  layout: number[];
+}
+
+/** Layout change above which consecutive frames are a camera cut, whatever the alignment says. */
+export const LAYOUT_CUT = 0.085;
+
+function layoutOf(gray: Float32Array, grad: Float32Array, W: number, H: number): number[] {
+  const G = 4;
+  const out: number[] = [];
+  for (const arr of [gray, grad]) {
+    for (let gy = 0; gy < G; gy++) {
+      for (let gx = 0; gx < G; gx++) {
+        let s = 0;
+        let n = 0;
+        for (let y = Math.floor((gy * H) / G); y < Math.floor(((gy + 1) * H) / G); y++) {
+          for (let x = Math.floor((gx * W) / G); x < Math.floor(((gx + 1) * W) / G); x++) {
+            s += arr[y * W + x];
+            n++;
+          }
+        }
+        out.push(n ? s / n : 0);
+      }
+    }
+  }
+  return out;
 }
 
 export function makeThumb(img: RgbaImage): Thumb {
@@ -36,7 +62,7 @@ export function makeThumb(img: RgbaImage): Thumb {
       grad[y * W + x] = Math.min(1, Math.sqrt(gx * gx + gy * gy) * 2);
     }
   }
-  return { gray, grad, width: W, height: H };
+  return { gray, grad, width: W, height: H, layout: layoutOf(gray, grad, W, H) };
 }
 
 function sad(
@@ -98,7 +124,12 @@ export function estimateMotion(prev: Thumb, curr: Thumb): MotionEstimate {
     }
   }
   const grayResidual = sad(curr.gray, prev.gray, W, H, best.dx, best.dy, 2, margin);
-  const sceneCut = grayResidual > 0.16 || Math.abs(best.dx) >= R - 1;
+  // A cut from a close-up to a wide shot can align well enough (both mostly grass) to pass the
+  // residual test; the picture's layout (crowd band, grass, players) still changes completely.
+  let layoutChange = 0;
+  for (let i = 0; i < curr.layout.length; i++) layoutChange += Math.abs(curr.layout[i] - prev.layout[i]);
+  layoutChange /= Math.max(1, curr.layout.length);
+  const sceneCut = grayResidual > 0.16 || Math.abs(best.dx) >= R - 1 || layoutChange > LAYOUT_CUT;
   return {
     dx: sceneCut ? 0 : best.dx / W,
     dy: sceneCut ? 0 : best.dy / H,

@@ -219,3 +219,81 @@ export function classifyTracks(tracks: ObjectTrack[], model: TeamColorModel): vo
 export function modelHex(model: TeamColorModel): { a: string; b: string } {
   return { a: labToHex(model.teamA), b: labToHex(model.teamB) };
 }
+
+/**
+ * The tracker sometimes hands a track from one player to another (crossing players, a camera cut
+ * it missed). The track's median colour is then a blend and every observation gets one team.
+ * Split a track where its observations' shirt colour switches team for two or more samples in a
+ * row, so each part is classified on its own colour.
+ */
+export function splitTracksByTeamColor(tracks: ObjectTrack[], model: TeamColorModel): ObjectTrack[] {
+  const tolA = Math.max(20, 2.6 * model.spreadA);
+  const tolB = Math.max(20, 2.6 * model.spreadB);
+  const label = (c: LabColor | null): 0 | 1 | null => {
+    if (!c || isLikelyOfficialColor(c)) return null;
+    const dA = deltaE(c, model.teamA);
+    const dB = deltaE(c, model.teamB);
+    const near = dA <= dB ? 0 : 1;
+    const dNear = Math.min(dA, dB);
+    const margin = (Math.max(dA, dB) - dNear) / (dA + dB + 1e-6);
+    if (dNear > (near === 0 ? tolA : tolB) || margin < 0.2) return null;
+    return near;
+  };
+  const out: ObjectTrack[] = [];
+  for (const t of tracks) {
+    const colors = t.observationColors;
+    if (t.objectType !== "player" || !colors || t.observations.length < 4) {
+      out.push(t);
+      continue;
+    }
+    const labels = colors.map(label);
+    // cut points: index where a run of >= 2 labelled samples of the other team starts
+    const cuts: number[] = [];
+    let current: 0 | 1 | null = null;
+    let currentCount = 0;
+    for (let i = 0; i < labels.length; i++) {
+      const l = labels[i];
+      if (l === null) continue;
+      if (current === null) {
+        current = l;
+        currentCount = 1;
+        continue;
+      }
+      if (l === current) {
+        currentCount++;
+        continue;
+      }
+      // l differs: does the other team hold for the next labelled sample too?
+      let j = i + 1;
+      while (j < labels.length && labels[j] === null) j++;
+      if (currentCount >= 2 && j < labels.length && labels[j] === l) {
+        cuts.push(i);
+        current = l;
+        currentCount = 1;
+      }
+    }
+    if (!cuts.length) {
+      out.push(t);
+      continue;
+    }
+    const bounds = [0, ...cuts, t.observations.length];
+    for (let k = 0; k < bounds.length - 1; k++) {
+      const obs = t.observations.slice(bounds[k], bounds[k + 1]);
+      const cs = colors.slice(bounds[k], bounds[k + 1]);
+      const valid = cs.filter((c): c is LabColor => !!c);
+      const med = (i: number) => {
+        const v = valid.map((c) => c[i]).sort((a, b) => a - b);
+        return v[v.length >> 1];
+      };
+      out.push({
+        ...t,
+        trackId: k === 0 ? t.trackId : `${t.trackId}.${k}`,
+        observations: obs,
+        observationColors: cs,
+        jerseyColor: valid.length ? [med(0), med(1), med(2)] : undefined,
+        status: k === bounds.length - 2 ? t.status : "ended",
+      });
+    }
+  }
+  return out;
+}

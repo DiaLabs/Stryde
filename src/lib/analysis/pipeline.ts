@@ -12,7 +12,7 @@ import { buildTeamFrames, calculateAnalytics } from "./analytics";
 import { selectBall } from "./ball";
 import { detectEvents } from "./events";
 import { estimatePossession, sampleDurations } from "./possession";
-import { classifyTracks, estimateTeamColors, userColorModel } from "./teams";
+import { classifyTracks, estimateTeamColors, splitTracksByTeamColor, userColorModel } from "./teams";
 import { buildFrameSummaries, buildTracks, imageSpaceMapper, mapTracks, type PitchMapper } from "./tracks";
 
 /** Everything produced by the expensive browser-inference pass. Re-analysis reuses it. */
@@ -42,7 +42,7 @@ export function buildResult(raw: RawAnalysis, overrides: AnalysisOverrides = {})
   const frames = raw.frames.slice().sort((a, b) => a.timestampSeconds - b.timestampSeconds);
   const warnings = [...raw.warnings];
   const summaries = buildFrameSummaries(frames);
-  const tracks = buildTracks(frames);
+  let tracks = buildTracks(frames);
   const aspect = raw.video.width / Math.max(1, raw.video.height);
   const sampleInterval = 1 / raw.sampleFps;
 
@@ -61,8 +61,11 @@ export function buildResult(raw: RawAnalysis, overrides: AnalysisOverrides = {})
     const b = userB ?? labToHex(other);
     model = userColorModel(a, b, estimated);
   }
-  if (model) classifyTracks(tracks, model);
-  else {
+  if (model) {
+    // split tracks whose shirt colour switches team (an ID switch), then classify the parts
+    tracks = splitTracksByTeamColor(tracks, model);
+    classifyTracks(tracks, model);
+  } else {
     tracks.forEach((t) => ((t.teamId = "unknown"), (t.teamConfidence = 0)));
     warnings.push("Team colors could not be estimated (too few tracked players). Set team colors manually.");
   }
