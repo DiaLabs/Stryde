@@ -42,4 +42,4 @@ export async function requestHardwareAdapter(gpu: Gpu | undefined): Promise<{ ad
  * with these switches, WebGPU runs on the card at ~55 ms a frame.
  */
 export const WEBGPU_FLAGS_HINT =
-  "To use the GPU, start Chrome with: google-chrome --enable-unsafe-webgpu --enable-features=Vulkan --use-angle=vulkan (on Linux, chrome://flags alone can't switch WebGPU to the graphics card).";
+  "To use the GPU, start Chrome with: google-chrome --ozone-platform=x11 --enable-unsafe-webgpu --enable-features=Vulkan --use-angle=vulkan (on Linux, chrome://flags alone can't switch WebGPU to the graphics card).";
