@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { DevicePreference } from "./types";
+import type { DevicePreference, ExecutionProvider } from "./types";
 
 /**
  * Which processor analysis will run on, in order of preference:
@@ -140,4 +140,33 @@ export function useDevicePreference(): [DevicePreference, (v: DevicePreference) 
     prefListeners.forEach((l) => l());
   };
   return [pref, set];
+}
+
+/**
+ * Plain wording for where an analysis is running: "the GPU of this device" or "the CPU of this
+ * device", naming the GPU when the browser reveals it and saying why when it is the CPU.
+ */
+export function runningOn(
+  provider: ExecutionProvider | undefined,
+  chosen: DevicePreference | undefined,
+  accel: Accelerator
+): { kind: "gpu" | "cpu"; short: string; sentence: string; note?: string } | null {
+  if (!provider) return null;
+  if (provider === "webgpu" || provider === "webgl") {
+    const name = accel.device ? `${accel.device}, ` : "";
+    return { kind: "gpu", short: "GPU", sentence: `Running on the GPU of this device (${name}${provider === "webgpu" ? "WebGPU" : "WebGL"}).` };
+  }
+  if (chosen === "cpu") {
+    return {
+      kind: "cpu",
+      short: "CPU",
+      sentence: "Running on the CPU of this device, as chosen on the upload page.",
+      note: accel.kind === "gpu" ? `This device has a GPU${accel.device ? ` (${accel.device})` : ""}: choose GPU on the upload page for a much faster analysis.` : undefined,
+    };
+  }
+  return {
+    kind: "cpu",
+    short: "CPU",
+    sentence: "Running on the CPU of this device: the browser gave no access to the GPU.",
+  };
 }

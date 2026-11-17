@@ -1,10 +1,11 @@
 "use client";
 
 import clsx from "clsx";
-import { Check, Film, Lock } from "lucide-react";
+import { Check, Cpu, Film, Lock, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Badge, Button, Card, Notice, ProgressBar, TeamChip } from "@/components/ui/primitives";
+import { runningOn, useAccelerator } from "@/lib/accelerator";
 import { STAGES } from "@/lib/analysis/coordinator";
 import { formatDuration } from "@/lib/format";
 import { attachPreviewCanvas, useStryde, type MatchEntry } from "@/lib/store";
@@ -87,6 +88,8 @@ export function ProcessingView({ entry }: { entry: MatchEntry; title?: string })
   const warnings = [...entry.inputWarnings, ...s.warnings];
   const rec = entry.lastRecord;
   const mode = entry.config.mode === "detailed" ? "More detailed" : "Faster";
+  const accel = useAccelerator();
+  const device = runningOn(entry.session.provider, entry.config.device, accel);
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 pt-6 pb-16 sm:px-6 lg:px-8 lg:pt-8">
@@ -110,7 +113,8 @@ export function ProcessingView({ entry }: { entry: MatchEntry; title?: string })
                 <TeamChip color={entry.config.teamBColor ?? PENDING_COLOR} name={entry.config.teamBName} className="max-w-full" />
               </p>
               <p className="mt-0.5 truncate text-[13px] text-ink-2" title={entry.meta.fileName}>
-                <span className="tabular">{formatDuration(entry.meta.durationSeconds)}</span> · {mode} mode · {entry.meta.fileName}
+                <span className="tabular">{formatDuration(entry.meta.durationSeconds)}</span> · {mode} mode
+                {device && <> · on the {device.short}</>} · {entry.meta.fileName}
               </p>
             </div>
           </div>
@@ -162,10 +166,19 @@ export function ProcessingView({ entry }: { entry: MatchEntry; title?: string })
             <p className="sr-only" aria-live="polite">
               {STAGES[current] ?? s.stage ?? "Starting"}
             </p>
-            {s.provider && (
-              <p className="mt-6 text-xs text-ink-2">
-                Running on the <span className="font-semibold text-ink">{s.provider === "webgpu" ? "graphics card (WebGPU)" : s.provider === "webgl" ? "graphics card (WebGL)" : "processor"}</span> of this device.
-              </p>
+            {device && (
+              <div
+                className={clsx(
+                  "mt-6 flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-[13px]",
+                  device.kind === "gpu" ? "border-brand/30 bg-ok-bg text-ok" : "border-line bg-page text-ink"
+                )}
+              >
+                {device.kind === "gpu" ? <Zap className="mt-0.5 size-4 shrink-0" aria-hidden /> : <Cpu className="mt-0.5 size-4 shrink-0 text-ink-2" aria-hidden />}
+                <div>
+                  <p className="font-semibold">{device.sentence}</p>
+                  {device.note && <p className="mt-0.5 text-ink-2">{device.note}</p>}
+                </div>
+              </div>
             )}
           </div>
 

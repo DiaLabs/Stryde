@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import { AlertCircle, CheckCircle2, Cpu, Loader2, RefreshCw, Zap } from "lucide-react";
 import { useSyncExternalStore } from "react";
-import { describeAccelerator, useAccelerator } from "@/lib/accelerator";
+import { describeAccelerator, useAccelerator, useDevicePreference } from "@/lib/accelerator";
 import { getModelCacheSnapshot, modelCacheSummary, preloadAllModels, retryModel, subscribeModelCache } from "@/lib/models/cache";
 import { ALL_MODEL_IDS } from "@/lib/models/registry";
 
@@ -15,9 +15,19 @@ export function ModelStatusBar({ dark, compact, className }: { dark?: boolean; c
   const snapshot = useSyncExternalStore(subscribeModelCache, getModelCacheSnapshot, getModelCacheSnapshot);
   const summary = modelCacheSummary();
   const accel = useAccelerator();
+  const [pref] = useDevicePreference();
   if (summary.state === "idle") return null;
-  const AccelIcon = accel.kind === "gpu" ? Zap : Cpu;
-  const desc = describeAccelerator(accel);
+  // the switch on the upload page wins: say so when it keeps a GPU device on the CPU
+  const cpuByChoice = pref === "cpu" && accel.kind === "gpu";
+  const AccelIcon = accel.kind === "gpu" && !cpuByChoice ? Zap : Cpu;
+  const base = describeAccelerator(accel);
+  const desc = base && cpuByChoice
+    ? {
+        short: "CPU",
+        long: `Set to run on the CPU of this device (your choice on the upload page). GPU available${accel.device ? `: ${accel.device}` : ""}.`,
+        hint: undefined as string | undefined,
+      }
+    : base;
 
   const retry = () => {
     for (const id of ALL_MODEL_IDS) if (snapshot[id].state === "error") retryModel(id);
@@ -63,7 +73,7 @@ export function ModelStatusBar({ dark, compact, className }: { dark?: boolean; c
       {desc && summary.state !== "error" && (
         <div className={clsx("mt-1.5 pl-[18px] text-[11px] leading-snug", dark ? "text-white/55" : "text-ink-2")}>
           <p className="flex items-start gap-1.5">
-            <AccelIcon className={clsx("mt-px size-3 shrink-0", accel.kind === "gpu" ? "text-brand" : "")} aria-hidden />
+            <AccelIcon className={clsx("mt-px size-3 shrink-0", accel.kind === "gpu" && !cpuByChoice ? "text-brand" : "")} aria-hidden />
             <span>{desc.long}</span>
           </p>
           {desc.hint && <p className={clsx("mt-1", dark ? "text-white/40" : "text-ink-2/80")}>{desc.hint}</p>}
