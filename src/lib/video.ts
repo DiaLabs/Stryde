@@ -89,6 +89,25 @@ async function estimateFrameRate(video: HTMLVideoElement): Promise<number | unde
  * Read metadata and validate a local video without uploading it. Returns
  * metadata and a small thumbnail data URL.
  */
+/**
+ * Seconds between the time the video is asked to show and the timestamp of the frame it shows
+ * at the start of the clip, or null when the browser can't tell (no requestVideoFrameCallback).
+ */
+async function firstFrameOffset(video: HTMLVideoElement): Promise<number | null> {
+  const v = video as HTMLVideoElement & {
+    requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
+  };
+  if (!v.requestVideoFrameCallback) return null;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 1500);
+    v.requestVideoFrameCallback!((_now, meta) => {
+      clearTimeout(timer);
+      resolve(meta.mediaTime - v.currentTime);
+    });
+    v.currentTime = 0.05;
+  });
+}
+
 export async function inspectVideo(file: File): Promise<{ meta: VideoMetadata; thumbnail?: string; warnings: string[] }> {
   const warnings: string[] = [];
   const looksLikeVideo = file.type.startsWith("video/") || /\.(mp4|m4v|webm|mov|ogv|mkv)$/i.test(file.name);
@@ -180,6 +199,16 @@ export async function inspectVideo(file: File): Promise<{ meta: VideoMetadata; t
         suggestedAction: "Convert the clip to MP4 (H.264) and try again.",
       });
     }
+    // Clips cut without resetting their timestamps (e.g. "ffmpeg -ss ... -c copy") start at, say,
+    // 5 s. Chrome then shows the first frame for every time before that and can't seek to the
+    // end, so part of the clip would silently go unanalysed: say so.
+    const offset = await firstFrameOffset(video);
+    if (offset !== null && offset > 0.5) {
+      warnings.push(
+        `This clip's timestamps start at ${offset.toFixed(1)} s instead of 0, so the browser can't show part of it and that part won't be analysed. Re-export the clip (any video editor, or ffmpeg with -avoid_negative_ts make_zero) and upload it again.`
+      );
+    }
+
     let frameRate: number | undefined;
     try {
       frameRate = await mp4FrameRate(file);
