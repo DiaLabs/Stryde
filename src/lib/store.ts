@@ -259,3 +259,9 @@ export function hasActiveResults(): boolean {
   const s = useStryde.getState();
   return s.order.length > 0;
 }
+
+// Development only: the accuracy scorecard (scripts/scorecard) reads results from here. Never in
+// production builds.
+if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+  (window as unknown as { __stryde?: typeof useStryde }).__stryde = useStryde;
+}

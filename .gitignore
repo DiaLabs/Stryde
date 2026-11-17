@@ -45,3 +45,6 @@ next-env.d.ts
 /public/workers/
 /public/models/*.onnx
 /public/samples/*.mp4
+
+# accuracy scorecard outputs (scripts/scorecard)
+/eval/scorecard/runs/

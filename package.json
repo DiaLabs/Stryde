@@ -12,7 +12,9 @@
     "build": "pnpm run assets && next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit",
+    "scorecard": "node scripts/scorecard/run.mjs",
+    "scorecard:replay": "node scripts/scorecard/replay.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
