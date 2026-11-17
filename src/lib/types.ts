@@ -266,7 +266,8 @@ export interface WorkerFrameRecord {
   frameIndex: number;
   timestampSeconds: number;
   players: WorkerPlayerDetection[];
-  balls: { box: BoundingBox; confidence: number }[];
+  /** ball candidates; `source` says which detector found it (general COCO model or the football ball model) */
+  balls: { box: BoundingBox; confidence: number; source?: "general" | "football" }[];
   /** frame-to-frame camera shift in normalized units */
   motionX: number;
   motionY: number;
@@ -284,7 +285,7 @@ export interface DetectorSettings {
 }
 
 export type WorkerRequest =
-  | { type: "init"; settings: DetectorSettings; ortBase: string; modelBuffer?: ArrayBuffer }
+  | { type: "init"; settings: DetectorSettings; ortBase: string; modelBuffer?: ArrayBuffer; ballModelBuffer?: ArrayBuffer }
   | { type: "frame"; frameIndex: number; timestampSeconds: number; bitmap: ImageBitmap }
   | { type: "reset" }
   | { type: "dispose" };

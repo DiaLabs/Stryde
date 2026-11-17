@@ -149,6 +149,9 @@ export class AnalysisCoordinator {
     return w;
   }
 
+  /** optional football ball detector, sent to every worker this run starts */
+  private ballModelBuffer: ArrayBuffer | undefined;
+
   private async initWorker(profile: ModeProfile, preferred: ExecutionProvider, modelBuffer: ArrayBuffer) {
     if (this.cancelled) throw toError("cancelled", "Cancelled");
     this.worker?.terminate();
@@ -164,7 +167,8 @@ export class AnalysisCoordinator {
     const ready = new Promise<{ provider: ExecutionProvider; warnings: string[] }>((resolve, reject) => {
       this.readyWaiter = { resolve, reject };
     });
-    this.post({ type: "init", settings, ortBase: "/ort/", modelBuffer });
+    // copies: a buffer posted to a worker is detached, and a GPU-to-CPU restart needs it again
+    this.post({ type: "init", settings, ortBase: "/ort/", modelBuffer, ballModelBuffer: this.ballModelBuffer?.slice(0) });
     return ready;
   }
 
@@ -199,7 +203,8 @@ export class AnalysisCoordinator {
     this.stopRequested = true;
   }
 
-  async start(modelBuffer: ArrayBuffer): Promise<void> {
+  async start(modelBuffer: ArrayBuffer, ballModelBuffer?: ArrayBuffer): Promise<void> {
+    this.ballModelBuffer = ballModelBuffer;
     const started = performance.now();
     this.update({ status: "loading", stage: "Preparing video…", stageIndex: 0, progress: 0.02, startedAt: Date.now() });
     const warnings: string[] = [];

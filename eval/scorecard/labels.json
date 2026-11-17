@@ -4,23 +4,24 @@
     "candidates-<clip>.json lists, for frames sampled at <fps>, the top 6 YOLO11n ball candidates (score >= 0.03) with normalised centres.",
     "labels[k] refers to frame k of that file: a number n = candidate n is the real ball; -1 = every candidate is a false detection;",
     "\"none\" = no candidate at all (skipped: the ball may be hidden or undetected); \"?\" = could not tell (skipped).",
+    "{x, y} = the real ball is here although the YOLO11n model had no candidate (found by the football ball model, checked by eye).",
     "Labelled by eye from 3x enlarged crops of each candidate (2026-11-17)."
   ],
   "clips": {
     "d1": {
       "video": "trimmed-demo1.mp4",
       "candidates": "candidates-d1.json",
-      "labels": ["?",-1,"none","none","none",0,0,0,"?",1,"none","?",0,"none",0,"none",0,0,1,0,0,0,"none","?",3,4,0,"?","?",-1,0,0,0,0,0,0,0,"none","?",1,0,0,0,"?",0,0,0,1]
+      "labels": ["?",-1,"none",{"x":0.4796,"y":0.6283},"none",0,0,0,"?",1,"none","?",0,"none",0,"none",0,0,1,0,0,0,"none","?",3,4,0,"?","?",-1,0,0,0,0,0,0,0,"none","?",1,0,0,0,"?",0,0,0,1]
     },
     "d2": {
       "video": "trimmed-demo2.mp4",
       "candidates": "candidates-d2.json",
-      "labels": ["none","none","none","none","none",0,0,0,0,"none",0,1,"?",0,"?",2,0,0,0,"?","?",1,1,0]
+      "labels": [{"x":0.7305,"y":0.5245},{"x":0.7457,"y":0.5284},{"x":0.6841,"y":0.5495},{"x":0.6321,"y":0.575},{"x":0.6359,"y":0.5815},0,0,0,0,{"x":0.7094,"y":0.5922},0,1,"?",0,"?",2,0,0,0,"?","?",1,1,0]
     },
     "d3": {
       "video": "trimmed-demo3.mp4",
       "candidates": "candidates-d3.json",
-      "labels": [0,"?",1,"?","?",-1,0,0,"none","none","none",0,1,"?",0,"none","?","none","none",0,0,1,1,"?",0,"?","?",2,"?",0,"?","?",0]
+      "labels": [0,"?",1,"?","?",-1,0,0,"none","none",{"x":0.7496,"y":0.4287},0,1,"?",0,{"x":0.7451,"y":0.4849},"?","none",{"x":0.8339,"y":0.5312},0,0,1,1,"?",0,"?","?",2,"?",0,"?","?",0]
     }
   }
 }

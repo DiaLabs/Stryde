@@ -10,12 +10,17 @@ import type {
 import { grassFraction, jerseyColor, type RgbaImage } from "../lib/vision/features";
 import { estimateMotion, makeThumb, type Thumb } from "../lib/vision/motion";
 import { AssociationTracker } from "../lib/vision/tracker";
-import { decodeYolo, letterboxParams, toTensorData } from "../lib/vision/yolo";
+import { decodeSingleClass, decodeYolo, letterboxParams, toTensorData } from "../lib/vision/yolo";
+
+/** Minimum score for the football ball detector (its real balls typically score 0.3–0.9). */
+const FOOTBALL_BALL_THRESHOLD = 0.1;
 
 declare const self: DedicatedWorkerGlobalScope & { ort?: typeof OrtTypes };
 
 let ort: typeof OrtTypes | null = null;
 let session: OrtTypes.InferenceSession | null = null;
+/** optional football-trained ball detector, run on the same input as the main model */
+let ballSession: OrtTypes.InferenceSession | null = null;
 let settings: DetectorSettings | null = null;
 let provider: ExecutionProvider = "wasm";
 const tracker = new AssociationTracker();
@@ -51,7 +56,7 @@ async function hasWebGpu(): Promise<boolean> {
   }
 }
 
-async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuffer) {
+async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuffer, ballModelBuffer?: ArrayBuffer) {
   settings = s;
   const warnings: string[] = [];
   if (!ort) {
@@ -116,6 +121,23 @@ async function init(s: DetectorSettings, ortBase: string, modelBuffer?: ArrayBuf
     }
   }
 
+  // The football ball model is optional: without it (or if it fails) analysis runs as before.
+  await ballSession?.release().catch(() => undefined);
+  ballSession = null;
+  if (ballModelBuffer) {
+    try {
+      const bs = await ort.InferenceSession.create(new Uint8Array(ballModelBuffer), { executionProviders: [provider], graphOptimizationLevel: "all" });
+      const size = s.inputSize;
+      const dims = bs.inputMetadata?.[0] && "shape" in bs.inputMetadata[0] ? (bs.inputMetadata[0].shape as number[]) : null;
+      if (dims && dims[2] !== size) throw new Error(`expects ${dims[2]} px input, the main model uses ${size}`);
+      const out = await bs.run({ [bs.inputNames[0]]: new ort.Tensor("float32", new Float32Array(3 * size * size), [1, 3, size, size]) });
+      for (const k of Object.keys(out)) out[k].dispose?.();
+      ballSession = bs;
+    } catch (e) {
+      warnings.push(`The football ball detector could not start (${String((e as Error).message ?? e).slice(0, 100)}); using the general detector for the ball.`);
+    }
+  }
+
   inputCanvas = new OffscreenCanvas(s.inputSize, s.inputSize);
   inputCtx = inputCanvas.getContext("2d", { willReadFrequently: true });
   tracker.reset();
@@ -162,8 +184,17 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
     { player: settings.playerThreshold, ball: settings.ballThreshold },
     settings.iouThreshold
   );
-  tensor.dispose();
   for (const k of Object.keys(outputs)) outputs[k].dispose?.();
+
+  // Football ball detector on the same input tensor.
+  let footballBalls: ReturnType<typeof decodeSingleClass> = [];
+  if (ballSession) {
+    const bout = await ballSession.run({ [ballSession.inputNames[0]]: tensor });
+    const bo = bout[ballSession.outputNames[0]];
+    footballBalls = decodeSingleClass((await bo.getData()) as Float32Array, bo.dims, lb, FOOTBALL_BALL_THRESHOLD);
+    for (const k of Object.keys(bout)) bout[k].dispose?.();
+  }
+  tensor.dispose();
 
   // Camera motion.
   const thumb = makeThumb(img);
@@ -191,21 +222,27 @@ async function processFrame(frameIndex: number, t: number, bitmap: ImageBitmap) 
     })
     .map((d) => ({ box: d.box, confidence: d.score, color: jerseyColor(img, d.box) }));
 
-  const ballCandidates = decoded.balls
-    .filter((d) => {
-      const b = d.box;
-      if (b.width > 0.048 || b.height > 0.065) return false;
-      const ar = b.width / Math.max(1e-4, b.height);
-      if (ar < 0.45 || ar > 2.2) return false;
-      const cx = b.x + b.width / 2;
-      const cy = b.y + b.height / 2;
-      // Airborne balls often sit above grass — relax the pitch check when high in frame or confident.
-      if (cy < 0.5 || d.score >= 0.22) return true;
-      const g = grassFraction(img, cx, cy, Math.max(b.width * 2.5, 0.01), Math.max(b.height * 2.5, 0.015));
-      return g >= 0.1;
-    })
-    .sort((a, b) => b.score - a.score);
-  const balls = ballCandidates.length ? [{ box: ballCandidates[0].box, confidence: ballCandidates[0].score }] : [];
+  const plausibleBall = (d: { box: { x: number; y: number; width: number; height: number }; score: number }) => {
+    const b = d.box;
+    if (b.width > 0.048 || b.height > 0.065) return false;
+    const ar = b.width / Math.max(1e-4, b.height);
+    if (ar < 0.45 || ar > 2.2) return false;
+    const cx = b.x + b.width / 2;
+    const cy = b.y + b.height / 2;
+    // Airborne balls often sit above grass — relax the pitch check when high in frame or confident.
+    if (cy < 0.5 || d.score >= 0.22) return true;
+    const g = grassFraction(img, cx, cy, Math.max(b.width * 2.5, 0.01), Math.max(b.height * 2.5, 0.015));
+    return g >= 0.1;
+  };
+  const ballCandidates = decoded.balls.filter(plausibleBall).sort((a, b) => b.score - a.score);
+  const footballCandidates = footballBalls.filter(plausibleBall).sort((a, b) => b.score - a.score);
+  // The football model's two best balls plus the general model's best; the pipeline picks the one
+  // that moves plausibly over time. Measured on the scorecard (eval/scorecard): ball found in 67%
+  // of labelled moments vs 50% with the general model alone, with the same share right.
+  const balls: WorkerFrameRecord["balls"] = [
+    ...footballCandidates.slice(0, 2).map((d) => ({ box: d.box, confidence: d.score, source: "football" as const })),
+    ...ballCandidates.slice(0, 1).map((d) => ({ box: d.box, confidence: d.score, source: "general" as const })),
+  ];
 
   const ids = tracker.update(players, t, motionX, motionY, sceneCut);
   const record: WorkerFrameRecord = {
@@ -234,7 +271,7 @@ async function handle(msg: WorkerRequest) {
   try {
     switch (msg.type) {
       case "init":
-        await init(msg.settings, msg.ortBase, msg.modelBuffer);
+        await init(msg.settings, msg.ortBase, msg.modelBuffer, msg.ballModelBuffer);
         break;
       case "frame":
         await processFrame(msg.frameIndex, msg.timestampSeconds, msg.bitmap);
@@ -246,6 +283,8 @@ async function handle(msg: WorkerRequest) {
       case "dispose":
         await session?.release();
         session = null;
+        await ballSession?.release().catch(() => undefined);
+        ballSession = null;
         self.close();
         break;
     }

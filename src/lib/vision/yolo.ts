@@ -100,4 +100,25 @@ export function decodeYolo(
   return { players: nms(players, iouThreshold), balls: nms(balls, 0.35, 16) };
 }
 
+/** Decode a single-class detector (e.g. the football ball model: [1, 5, N]). */
+export function decodeSingleClass(output: Float32Array, dims: readonly number[], lb: Letterbox, threshold: number): RawDetection[] {
+  const n = dims[2];
+  if (dims[1] < 5) throw new Error(`Unexpected detector output shape [${dims.join(",")}]`);
+  const out: RawDetection[] = [];
+  for (let i = 0; i < n; i++) {
+    const s = output[4 * n + i];
+    if (s < threshold) continue;
+    const cx = output[i];
+    const cy = output[n + i];
+    const w = output[2 * n + i];
+    const h = output[3 * n + i];
+    const x1 = Math.max(0, (cx - w / 2 - lb.padX) / lb.scale);
+    const y1 = Math.max(0, (cy - h / 2 - lb.padY) / lb.scale);
+    const x2 = Math.min(lb.srcW, (cx + w / 2 - lb.padX) / lb.scale);
+    const y2 = Math.min(lb.srcH, (cy + h / 2 - lb.padY) / lb.scale);
+    out.push({ cls: COCO_SPORTS_BALL, score: s, box: { x: x1 / lb.srcW, y: y1 / lb.srcH, width: Math.max(0, x2 - x1) / lb.srcW, height: Math.max(0, y2 - y1) / lb.srcH } });
+  }
+  return nms(out, 0.35, 16);
+}
+
 export { iou };

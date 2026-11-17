@@ -48,3 +48,4 @@ next-env.d.ts
 
 # accuracy scorecard outputs (scripts/scorecard)
 /eval/scorecard/runs/
+!/public/models/football-ball-960.onnx

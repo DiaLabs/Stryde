@@ -6,8 +6,9 @@ possession: a change that does not move these numbers is not an improvement.
 
 ## What is labelled
 
-`labels.json` marks where the real ball is in 105 sampled frames (59 with the ball clearly
-identified). For each frame, `candidates-<clip>.json` lists the model's ball candidates and the
+`labels.json` marks where the real ball is in 105 sampled frames (69 with the ball clearly
+identified: 59 among the YOLO11n candidates, plus 10 the football ball model found where
+YOLO11n had no candidate, each checked by eye). For each frame, `candidates-<clip>.json` lists the model's ball candidates and the
 label says which one is the real ball, or that none is. Labels were made by eye from enlarged
 crops of each candidate. `labels.json` explains the codes.
 
@@ -63,9 +64,15 @@ To label more clips, `scripts/scorecard/candidates.mjs` makes the enlarged-crop 
 | Whole-clip ball path | 51–57% | 60–65% |
 | More candidates, lower threshold | 45–51% | 55–61% |
 | More detailed mode (YOLO11s, 10 fps) | 53% | 68% |
+| **Football ball model + COCO fallback (shipped)** | **67%** (on the 60-label set below) | **68%** |
 
 The real ball is among the model's candidates in only about 57–72% of labelled moments, so ball
-choice is not the limit; the detector is. Splitting tracks whose shirt colour switches team
+choice is not the limit; the detector is. The rows above were measured on the first 53 labels.
+
+After 10 more balls were labelled (ones only the football model found), the set has 60 labels
+that match app frames. On that set the original engine finds 50% of balls (67% right), and with
+the football ball model it finds 67% (68% right). demo2 rose from 18% to 55%, and demo3 from 39%
+to 67%. On the CPU, demo1 takes about 214 s instead of 161 s. Splitting tracks whose shirt colour switches team
 fixed 2 wrong-team boxes out of about 170 checked and broke none, so it was kept.
 
 ## Notes

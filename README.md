@@ -80,7 +80,38 @@ pnpm build       # assets + production build
 pnpm start
 pnpm lint
 pnpm typecheck   # generates route types, then tsc
+pnpm scorecard   # accuracy check against hand-labelled demo clips (see eval/scorecard)
 ```
+
+## Models
+
+Detection runs in the browser with [ONNX Runtime Web](https://onnxruntime.ai):
+
+- **Players (and a fallback ball):** Ultralytics YOLO11n (Faster) or YOLO11s (More detailed),
+  pretrained on COCO, exported to ONNX at 960 px. They are downloaded at build time by
+  `scripts/download-assets.mjs`.
+- **Ball:** a YOLO11n fine-tuned on football footage to find only the ball,
+  [martinjolif/yolo-football-ball-detection](https://huggingface.co/martinjolif/yolo-football-ball-detection)
+  (revision `63666b30`), converted to ONNX and committed as
+  `public/models/football-ball-960.onnx`. On the accuracy scorecard it raised the share of
+  moments where the app finds the ball from 50% to 67%, at about a third more processing time on
+  the CPU. If it is missing, analysis falls back to the COCO model for the ball.
+
+All of these weights are licensed under AGPL-3.0, like Ultralytics YOLO itself.
+
+To reproduce the ball model conversion (Python 3.12, CPU PyTorch):
+
+```bash
+uv venv --python 3.12 .venv-export
+uv pip install --python .venv-export/bin/python --index-url https://download.pytorch.org/whl/cpu torch torchvision
+uv pip install --python .venv-export/bin/python ultralytics onnx onnxslim
+curl -L -o ball.pt https://huggingface.co/martinjolif/yolo-football-ball-detection/resolve/63666b30e2a4973e089c982769f146af54530750/yolo-football-ball-detection.pt
+.venv-export/bin/python -c "from ultralytics import YOLO; YOLO('ball.pt').export(format='onnx', imgsz=960, opset=17, simplify=True)"
+```
+
+The checkpoint is a pickle, which runs code when loaded. The pinned revision was checked first:
+its SHA-256 is `fb37942448e7de08745e8aab148d0794f680a738ddd55e5f17abe9ab2d6313fb`, and it only
+references PyTorch and Ultralytics model classes.
 
 ## Deployment
 

@@ -137,6 +137,8 @@ export const useStryde = create<StoreState>((set, get) => {
           const gpu = await detectWebGpu();
           if (!live()) return;
           const modelBuffer = await ensureModel(modelIdForMode(m.config.mode, gpu && m.config.device !== "cpu"));
+          // the football ball detector is optional: analysis runs without it if it can't load
+          const ballModelBuffer = await ensureModel("ball").catch(() => undefined);
           if (!live()) return;
           const current = get().matches[id];
           if (!current) return finish();
@@ -179,7 +181,7 @@ export const useStryde = create<StoreState>((set, get) => {
             },
           });
           run.coordinator = coord;
-          await coord.start(modelBuffer);
+          await coord.start(modelBuffer, ballModelBuffer);
         } catch (e) {
           if (!live()) return;
           const error: AnalysisError = isAnalysisError(e)

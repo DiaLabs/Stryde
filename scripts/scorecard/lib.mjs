@@ -51,7 +51,8 @@ export function scoreBall(clip, frames, ball, rawBalls) {
       return;
     }
     s.truth++;
-    const tr = cands.frames[k].balls[lab];
+    // a candidate index, or { x, y } for a ball the YOLO11n model had no candidate for
+    const tr = typeof lab === "object" ? lab : cands.frames[k].balls[lab];
     const near = (p) => Math.hypot((p.x - tr.x) * W, (p.y - tr.y) * H) <= TOLERANCE_PX;
     if (rawBalls?.get(fr.f)?.some(near)) s.inCands++;
     if (!b) s.missed++;

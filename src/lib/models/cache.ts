@@ -29,6 +29,7 @@ function emptyStatus(spec: ModelSpec): ModelStatus {
 let snapshot: Snapshot = {
   yolo11n: emptyStatus(MODELS.yolo11n),
   yolo11s: emptyStatus(MODELS.yolo11s),
+  ball: emptyStatus(MODELS.ball),
 };
 
 function emit() {
@@ -187,6 +188,7 @@ async function hasWebGpuAdapter(): Promise<boolean> {
  */
 export function preloadAllModels(): void {
   preload("yolo11n");
+  preload("ball");
   void hasWebGpuAdapter().then((gpu) => {
     if (gpu) preload("yolo11s");
   });
@@ -224,9 +226,12 @@ export function anyModelLoading(): boolean {
   return ALL_MODEL_IDS.some((id) => snapshot[id].state === "loading");
 }
 
-/** Models that have been requested at least once this session. */
+/** The football ball model improves results but analysis works without it. */
+const OPTIONAL: ModelId[] = ["ball"];
+
+/** Models that have been requested at least once this session (an optional one that failed is left out). */
 function requestedModels(): ModelId[] {
-  return ALL_MODEL_IDS.filter((id) => snapshot[id].state !== "idle");
+  return ALL_MODEL_IDS.filter((id) => snapshot[id].state !== "idle" && !(OPTIONAL.includes(id) && snapshot[id].state === "error"));
 }
 
 export function allModelsReady(): boolean {
